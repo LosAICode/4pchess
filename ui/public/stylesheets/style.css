@@ -252,23 +252,23 @@ a {
 }
 
 .badge-tl {
-  top: 100px;
-  left: 4px;
+  top: 96px;
+  left: 0;
 }
 
 .badge-tr {
-  top: 100px;
-  right: 4px;
+  top: 96px;
+  right: 0;
 }
 
 .badge-bl {
-  bottom: 100px;
-  left: 4px;
+  bottom: 96px;
+  left: 0;
 }
 
 .badge-br {
-  bottom: 100px;
-  right: 4px;
+  bottom: 96px;
+  right: 0;
 }
 
 .player-badge.color-red { background: rgba(191, 59, 67, 0.9); }
