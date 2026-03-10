@@ -6,14 +6,28 @@ import * as utils from './utils.mjs';
 var board;
 var clicked_loc = null;
 var legal_moves = null;
-var moves = []; // list of (move, piece_type)
+var moves = []; // list of [move, piece_type] — the main line
 var move_index = null;
 var board_key_to_eval = {};
 const player_id_to_color = {0: 'red', 1: 'blue', 2: 'yellow', 3: 'green'};
+const colors = ['red', 'blue', 'yellow', 'green'];
 var request_interval = null;
 var max_search_depth = null;
 var secs_per_move = null;
 var MATE_VALUE = 1000000;
+var auto_play_enabled = false;
+var auto_play_interval = null;
+
+// Board rotation: 0=red at bottom, 1=blue, 2=yellow, 3=green
+var board_rotation = 0;
+const rotation_order = ['red', 'blue', 'yellow', 'green'];
+
+// Player names from PGN
+var player_names = {red: null, blue: null, yellow: null, green: null};
+
+// Variation support
+var branches = {};        // {move_index: [[[move, piece_type], ...]]}
+var active_branch = null; // null or {from: N, idx: I, pos: P}
 
 if (window.localStorage != null) {
   var max_depth = parseInt(window.localStorage['max_search_depth']);
@@ -28,6 +42,23 @@ if (window.localStorage != null) {
 
 function createBoard() {
   var rows = []
+  var row_labels = [14,13,12,11,10,9,8,7,6,5,4,3,2,1];
+  var col_labels = 'abcdefghijklmn';
+
+  // Row numbers: leftmost playable square per row
+  var row_coord_cells = {};
+  for (var r = 0; r < 14; r++) {
+    var c = (r < 3 || r > 10) ? 3 : 0;
+    row_coord_cells[`${r}_${c}`] = String(row_labels[r]);
+  }
+
+  // Column letters: bottommost playable square per column
+  var col_coord_cells = {};
+  for (var c = 0; c < 14; c++) {
+    var r = (c < 3 || c > 10) ? 10 : 13;
+    col_coord_cells[`${r}_${c}`] = col_labels[c];
+  }
+
   for (var row = 0; row < 14; row++) {
     var cols = []
     for (var col = 0; col < 14; col++) {
@@ -45,11 +76,18 @@ function createBoard() {
 
       var class_str = classes.join(' ');
       var cell_id = `cell_${row}_${col}`;
+      var coord_html = '';
+      var key = `${row}_${col}`;
+      if (row_coord_cells[key]) {
+        coord_html += `<span class='coord coord-row'>${row_coord_cells[key]}</span>`;
+      }
+      if (col_coord_cells[key]) {
+        coord_html += `<span class='coord coord-col'>${col_coord_cells[key]}</span>`;
+      }
       var cell = `<div class='${class_str}'
                        id='${cell_id}'
                        data-row='${row}'
-                       data-col='${col}'>
-                  </div>`;
+                       data-col='${col}'>${coord_html}</div>`;
       cols.push(cell);
     }
     var cols_html = cols.join('');
@@ -73,8 +111,55 @@ function createBoard() {
 
 createBoard();
 
+// --- Persist/restore state across refreshes ---
+function saveState() {
+  try {
+    var pgn_str = $('#pgn_input').val();
+    if (pgn_str) {
+      window.localStorage['saved_pgn'] = pgn_str;
+    }
+    // Save current position
+    var pos = move_index != null ? move_index : -1;
+    window.localStorage['saved_move_index'] = pos;
+    window.localStorage['saved_rotation'] = board_rotation;
+  } catch(e) {}
+}
+
+function restoreState() {
+  try {
+    var saved_pgn = window.localStorage['saved_pgn'];
+    if (saved_pgn) {
+      $('#pgn_input').val(saved_pgn);
+      var res = utils.parseGameFromPGN(saved_pgn);
+      var moves_and_piece_types = [];
+      for (var i = 0; i < res['moves'].length; i++) {
+        moves_and_piece_types.push([res['moves'][i], res['piece_types'][i]]);
+      }
+      resetBoard(res['board'], moves_and_piece_types, res['player_names']);
+
+      // Restore move position
+      var saved_idx = parseInt(window.localStorage['saved_move_index']);
+      if (!isNaN(saved_idx) && saved_idx >= -1 && saved_idx < moves.length) {
+        jumpToMainLine(saved_idx);
+      }
+
+      // Restore rotation
+      var saved_rot = parseInt(window.localStorage['saved_rotation']);
+      if (!isNaN(saved_rot) && saved_rot >= 0 && saved_rot <= 3) {
+        board_rotation = saved_rot;
+      }
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
 $(document).ready(function() {
-  resetBoard();
+  var restored = restoreState();
+  if (!restored) {
+    resetBoard();
+  }
+  applyRotation();
   displayBoard();
   request_interval = setInterval(requestBoardEvaluation, 50);
   if (max_search_depth != null) {
@@ -102,9 +187,9 @@ $(document).ready(function() {
     }
     window.localStorage['secs_per_move'] = secs_per_move;
   });
-  $('#pgn_input').change(function() {
+  function loadPGN() {
     $('#pgn_error').text('');
-    var pgn_str = $(this).val();
+    var pgn_str = $('#pgn_input').val();
     if (pgn_str != '') {
       var pgn_board = null;
       var pgn_moves = null;
@@ -118,19 +203,25 @@ $(document).ready(function() {
         $('#pgn_error').text(error.toString());
       }
       if (pgn_board != null) {
-        // add piece type to moves
         var moves_and_piece_types = [];
         for (var i = 0; i < pgn_moves.length; i++) {
           moves_and_piece_types.push([pgn_moves.at(i), piece_types.at(i)]);
         }
-        resetBoard(pgn_board, moves_and_piece_types);
+        resetBoard(pgn_board, moves_and_piece_types, res['player_names']);
         displayBoard();
+        $('#pgn_error').text(`Loaded ${pgn_moves.length} moves successfully.`);
+        $('#pgn_error').css('color', 'green');
+        // Persist to localStorage
+        saveState();
       }
     }
-  });
+  }
+  $('#pgn_input').on('input', loadPGN);
+  $('#pgn_input').change(loadPGN);
+  $('#load_pgn').click(loadPGN);
 })
 
-function resetBoard(set_board = null, set_moves = null) {
+function resetBoard(set_board = null, set_moves = null, set_player_names = null) {
   if (set_board == null) {
     board = board_util.Board.CreateStandardSetup();
     moves = [];
@@ -142,49 +233,113 @@ function resetBoard(set_board = null, set_moves = null) {
   }
   clicked_loc = null;
   legal_moves = null;
+  branches = {};
+  active_branch = null;
+  if (set_player_names) {
+    player_names = set_player_names;
+  } else {
+    player_names = {red: null, blue: null, yellow: null, green: null};
+  }
+  updatePlayerNamesBar();
+  updatePlayerLabels();
 }
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function maybeUndoMove(jump = 1) {
-  if (moves.length && move_index >= 0) {
-    var num_undo = Math.min(jump, move_index + 1);
-    move_index -= num_undo;
-    for (var i = 0; i < num_undo; i++) {
+// --- Navigation ---
+
+function movesEqual(m1, m2) {
+  return m1.getFrom().equals(m2.getFrom()) && m1.getTo().equals(m2.getTo());
+}
+
+function exitBranch() {
+  if (active_branch == null) return;
+  // Undo all branch moves
+  for (var i = 0; i <= active_branch.pos; i++) {
+    board.undoMove();
+  }
+  active_branch = null;
+}
+
+function jumpToMainLine(target_index) {
+  exitBranch();
+  if (move_index == null) move_index = -1;
+  // Now on main line at move_index
+  if (target_index < move_index) {
+    for (var i = 0; i < move_index - target_index; i++) {
       board.undoMove();
+    }
+  } else if (target_index > move_index) {
+    for (var i = move_index + 1; i <= target_index; i++) {
+      board.makeMove(moves[i][0]);
+    }
+  }
+  move_index = target_index;
+  clicked_loc = null;
+  legal_moves = null;
+}
+
+function jumpToBranch(bp, vi, target_pos) {
+  // First get to branch point on main line
+  jumpToMainLine(bp);
+  // Apply branch moves up to target_pos
+  var branch = branches[bp][vi];
+  for (var i = 0; i <= target_pos; i++) {
+    board.makeMove(branch[i][0]);
+  }
+  active_branch = {from: bp, idx: vi, pos: target_pos};
+  clicked_loc = null;
+  legal_moves = null;
+}
+
+function maybeUndoMove(jump = 1) {
+  if (active_branch != null) {
+    var num = Math.min(jump, active_branch.pos + 1);
+    for (var i = 0; i < num; i++) {
+      board.undoMove();
+    }
+    active_branch.pos -= num;
+    if (active_branch.pos < 0) {
+      active_branch = null;
     }
     clicked_loc = null;
     legal_moves = null;
+    displayBoard();
+    return;
+  }
+  if (moves.length && move_index >= 0) {
+    var num = Math.min(jump, move_index + 1);
+    jumpToMainLine(move_index - num);
     displayBoard();
   }
 }
 
 function maybeRedoMove(jump = 1) {
-  if (moves.length && move_index < moves.length - 1) {
-    var num_redo = Math.min(jump, moves.length - move_index - 1);
-    for (var i = 0; i < num_redo; i++) {
-      var move, piece_type;
-      [move, piece_type] = moves.at(move_index + i + 1);
-      board.makeMove(move);
+  if (active_branch != null) {
+    var branch = branches[active_branch.from][active_branch.idx];
+    var remaining = branch.length - 1 - active_branch.pos;
+    var num = Math.min(jump, remaining);
+    for (var i = 0; i < num; i++) {
+      board.makeMove(branch[active_branch.pos + i + 1][0]);
     }
-    move_index += num_redo;
+    active_branch.pos += num;
     clicked_loc = null;
     legal_moves = null;
+    displayBoard();
+    return;
+  }
+  if (moves.length && move_index < moves.length - 1) {
+    var num = Math.min(jump, moves.length - move_index - 1);
+    jumpToMainLine(move_index + num);
     displayBoard();
   }
 }
 
-function performMove(move, piece_type) {
-  if (moves.length > 0 && move_index < moves.length - 1) {
-    moves.splice(move_index + 1);
-  }
+// --- Move execution ---
 
-  board.makeMove(move);
-  moves.push([move, piece_type]);
-  move_index = moves.length - 1;
-
+function checkEndsGame(move) {
   if (move.getEndsGame() == null) {
     var capture = move.getStandardCapture();
     if ((capture != null && capture.getPieceType().equals(board_util.KING))
@@ -194,6 +349,74 @@ function performMove(move, piece_type) {
       move.setEndsGame(false);
     }
   }
+}
+
+function performMove(move, piece_type) {
+  if (active_branch != null) {
+    // Currently in a branch — extend or advance within it
+    var branch = branches[active_branch.from][active_branch.idx];
+    if (active_branch.pos < branch.length - 1) {
+      // Mid-branch: check if matches next branch move
+      var next = branch[active_branch.pos + 1][0];
+      if (movesEqual(next, move)) {
+        board.makeMove(branch[active_branch.pos + 1][0]);
+        active_branch.pos++;
+        displayBoard();
+        return;
+      }
+      // Different move mid-branch: truncate and extend
+      branch.splice(active_branch.pos + 1);
+    }
+    board.makeMove(move);
+    branch.push([move, piece_type]);
+    active_branch.pos = branch.length - 1;
+    checkEndsGame(move);
+    displayBoard();
+    return;
+  }
+
+  // On main line
+  if (move_index < moves.length - 1) {
+    // Mid-game: check if matches next main line move
+    var next = moves[move_index + 1][0];
+    if (movesEqual(next, move)) {
+      board.makeMove(moves[move_index + 1][0]);
+      move_index++;
+      displayBoard();
+      return;
+    }
+
+    // Different move — create or enter a branch
+    var bp = move_index;
+    if (!branches[bp]) branches[bp] = [];
+
+    // Check if this move already exists in a branch at this point
+    for (var bi = 0; bi < branches[bp].length; bi++) {
+      var b = branches[bp][bi];
+      if (b.length > 0 && movesEqual(b[0][0], move)) {
+        // Enter existing branch
+        board.makeMove(b[0][0]);
+        active_branch = {from: bp, idx: bi, pos: 0};
+        displayBoard();
+        return;
+      }
+    }
+
+    // New branch
+    board.makeMove(move);
+    branches[bp].push([[move, piece_type]]);
+    active_branch = {from: bp, idx: branches[bp].length - 1, pos: 0};
+    checkEndsGame(move);
+    displayBoard();
+    return;
+  }
+
+  // At end of main line — extend it
+  board.makeMove(move);
+  moves.push([move, piece_type]);
+  move_index = moves.length - 1;
+  checkEndsGame(move);
+  displayBoard();
 }
 
 function maybeMakeSuggestedMove() {
@@ -219,14 +442,11 @@ function maybeMakeSuggestedMove() {
 
       var piece = board.getPieceRowCol(from_row, from_col);
       var from_loc = new board_util.BoardLocation(from_row, from_col);
-      var legal_moves = board.getLegalMoves(piece, from_loc);
+      var piece_legal_moves = board.getLegalMoves(piece, from_loc);
       var to_loc = new board_util.BoardLocation(to_row, to_col);
-      for (const move of legal_moves) {
-        if (move.getTo().equals(to_loc)) {
-          var piece_type = piece.getPieceType();
-          performMove(move, piece_type);
-          displayBoard();
-
+      for (const m of piece_legal_moves) {
+        if (m.getTo().equals(to_loc)) {
+          performMove(m, piece.getPieceType());
           break;
         }
       }
@@ -234,44 +454,133 @@ function maybeMakeSuggestedMove() {
   }
 }
 
-$('.cell').click(function() {
+// --- Drag and drop + click to move ---
+var drag_state = null; // {from_loc, piece, piece_type, drag_moves, ghost, started}
+
+function getCellFromPoint(x, y) {
+  var el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  var cell = el.closest('.cell');
+  if (!cell) return null;
+  var row = parseInt(cell.dataset.row);
+  var col = parseInt(cell.dataset.col);
+  if (isNaN(row) || isNaN(col)) return null;
+  return {row: row, col: col, element: cell};
+}
+
+function tryPlayMoveToLoc(loc, from_legal_moves) {
+  for (const move of from_legal_moves) {
+    if (move.getTo().equals(loc)) {
+      var piece_type = board.getPiece(move.getFrom()).getPieceType();
+      performMove(move, piece_type);
+      return true;
+    }
+  }
+  return false;
+}
+
+$('#board').on('mousedown', '.cell', function(e) {
+  e.preventDefault();
   var row = $(this).data('row');
   var col = $(this).data('col');
   var loc = new board_util.BoardLocation(row, col);
 
+  // If we already have legal moves shown (from a previous click), try to play
   if (legal_moves != null) {
-    for (const move of legal_moves) {
-      if (move.getTo().equals(loc)) {
-        var piece_type = board.getPiece(move.getFrom()).getPieceType();
-        performMove(move, piece_type);
-
-        break;
-      }
-    }
-
-    clicked_loc = null;
-    legal_moves = null;
-
-  } else {
-
-    if (loc in board.location_to_piece) {
-      var loc, piece;
-      [loc, piece] = board.location_to_piece[loc];
-      if (piece.getColor().equals(board.getTurn().getColor())) {
-        legal_moves = board.getLegalMoves(piece, loc);
-      }
-      if (legal_moves == null || legal_moves.length == 0) {
-        clicked_loc = null;
-        legal_moves = null;
-      }
-    } else {
+    if (tryPlayMoveToLoc(loc, legal_moves)) {
       clicked_loc = null;
       legal_moves = null;
+      displayBoard();
+      return;
+    }
+    // Clicked somewhere else — clear selection
+    clicked_loc = null;
+    legal_moves = null;
+  }
+
+  // Check if there's a piece here belonging to the current player
+  if (loc in board.location_to_piece) {
+    var loc_piece = board.location_to_piece[loc];
+    var [bloc, piece] = loc_piece;
+    if (piece.getColor().equals(board.getTurn().getColor())) {
+      var drag_moves = board.getLegalMoves(piece, bloc);
+      if (drag_moves && drag_moves.length > 0) {
+        // Show legal moves immediately
+        legal_moves = drag_moves;
+        clicked_loc = bloc;
+        displayBoard();
+
+        // Create ghost piece for dragging
+        var color_name = piece.getPlayer().getColor().name.toLowerCase();
+        var piece_name = piece.getPieceType().name.toLowerCase();
+        var ghost = document.createElement('div');
+        ghost.className = `drag-ghost ${color_name}-${piece_name}`;
+        ghost.style.left = (e.pageX - 25) + 'px';
+        ghost.style.top = (e.pageY - 25) + 'px';
+        document.body.appendChild(ghost);
+
+        drag_state = {
+          from_loc: bloc,
+          piece: piece,
+          piece_type: piece.getPieceType(),
+          drag_moves: drag_moves,
+          ghost: ghost,
+          started: false,
+          startX: e.pageX,
+          startY: e.pageY
+        };
+
+        // Hide original piece during drag
+        $(`#cell_${bloc.getRow()}_${bloc.getCol()}`).addClass('drag-source');
+      }
     }
   }
 
   displayBoard();
-})
+});
+
+$(document).on('mousemove', function(e) {
+  if (drag_state == null) return;
+  // Check if we've moved enough to consider it a drag (not just a click)
+  var dx = e.pageX - drag_state.startX;
+  var dy = e.pageY - drag_state.startY;
+  if (!drag_state.started && (dx*dx + dy*dy) > 16) {
+    drag_state.started = true;
+  }
+  if (drag_state.started) {
+    drag_state.ghost.style.left = (e.pageX - 25) + 'px';
+    drag_state.ghost.style.top = (e.pageY - 25) + 'px';
+    drag_state.ghost.style.display = 'block';
+  }
+});
+
+$(document).on('mouseup', function(e) {
+  if (drag_state == null) return;
+  var ds = drag_state;
+  drag_state = null;
+
+  // Remove ghost
+  if (ds.ghost && ds.ghost.parentNode) {
+    ds.ghost.parentNode.removeChild(ds.ghost);
+  }
+  $('.drag-source').removeClass('drag-source');
+
+  if (!ds.started) {
+    // It was a click, not a drag — legal moves are already shown, wait for second click
+    return;
+  }
+
+  // It was a drag — find the drop target
+  var target = getCellFromPoint(e.clientX, e.clientY);
+  if (target) {
+    var to_loc = new board_util.BoardLocation(target.row, target.col);
+    tryPlayMoveToLoc(to_loc, ds.drag_moves);
+  }
+
+  clicked_loc = null;
+  legal_moves = null;
+  displayBoard();
+});
 
 var piece_classes = [];
 Object.keys(board_util.PlayerColor).forEach(function(player_color) {
@@ -284,9 +593,39 @@ Object.keys(board_util.PlayerColor).forEach(function(player_color) {
 });
 var piece_classes_str = piece_classes.join(' ');
 
-// NOTE: This could be more efficient.
+// --- Get the last move played by each player (up to current position) ---
+function getLastMovePerPlayer() {
+  var result = {red: null, blue: null, yellow: null, green: null};
+  // Determine all moves up to current position
+  var effective_moves = [];
+  if (move_index != null && move_index >= 0) {
+    for (var i = 0; i <= move_index; i++) {
+      effective_moves.push(moves[i]);
+    }
+  }
+  if (active_branch != null) {
+    var branch = branches[active_branch.from][active_branch.idx];
+    for (var i = 0; i <= active_branch.pos; i++) {
+      effective_moves.push(branch[i]);
+    }
+  }
+  // Walk backwards to find the last move for each color
+  // Turn order: red(0), blue(1), yellow(2), green(3) repeating
+  for (var i = effective_moves.length - 1; i >= 0; i--) {
+    var color = colors[i % 4];
+    if (result[color] == null) {
+      result[color] = effective_moves[i][0];
+    }
+    // Stop early if we found all 4
+    if (result.red && result.blue && result.yellow && result.green) break;
+  }
+  return result;
+}
+
+// --- Display ---
+
 function displayBoard() {
-  $('.cell').removeClass(piece_classes_str);
+  $('.cell').removeClass(piece_classes_str + ' engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green');
 
   Object.values(board.location_to_piece).forEach(function(loc_piece) {
     var loc, piece;
@@ -319,40 +658,103 @@ function displayBoard() {
     });
   }
 
-  if (moves.length > 0) {
-    var elements = [];
-    var colors = ['red', 'blue', 'yellow', 'green'];
-    for (var move_id = 0; move_id < moves.length; move_id++) {
-      var move, piece_type;
-      [move, piece_type] = moves.at(move_id);
-      var color = colors[move_id % 4];
-      var cell_text = getMoveText(move, piece_type);
-      if (move.getEndsGame() == true) {
-        cell_text += '#';
-      }
-      var classes = ['move-cell', color];
-      if (move_index == move_id) {
-        classes.push('move-current');
-      }
-      var element_class = classes.join(' ');
-      var element = `<div class='${element_class}'>${cell_text}</div>`;
-      elements.push(element)
+  // Highlight last move per player with their color
+  var last_moves = getLastMovePerPlayer();
+  for (var color in last_moves) {
+    var lm = last_moves[color];
+    if (lm != null) {
+      var lm_from = lm.getFrom();
+      var lm_to = lm.getTo();
+      $(`#cell_${lm_from.getRow()}_${lm_from.getCol()}`).addClass('last-move-' + color);
+      $(`#cell_${lm_to.getRow()}_${lm_to.getCol()}`).addClass('last-move-' + color);
     }
-    var row_elements = [];
-    for (var move = 0; move < Math.ceil(elements.length / 4); move++) {
-      var cells = [];
-      cells.push(`<div class='move-number'>${move+1}</div>`);
-      for (var index = move*4; index < (move+1)*4 && index < elements.length; index++) {
-        cells.push(elements.at(index));
-      }
-      cells = cells.join('');
-      var row_element = `<div class='move-row'>${cells}</div>`;
-      row_elements.push(row_element);
-    }
-    var move_html = row_elements.join('\n');
-    $('#move_history').html(move_html);
   }
 
+  // --- Build move history with variations ---
+  if (moves.length > 0) {
+    var row_elements = [];
+    var num_turns = Math.ceil(moves.length / 4);
+
+    for (var turn = 0; turn < num_turns; turn++) {
+      var cells = [];
+      cells.push(`<div class='move-number'>${turn + 1}.</div>`);
+      for (var col = 0; col < 4; col++) {
+        var idx = turn * 4 + col;
+        if (idx < moves.length) {
+          var [mv, pt] = moves[idx];
+          var cell_text = getMoveText(mv, pt);
+          if (mv.getEndsGame() == true) cell_text += '#';
+          var cls_list = ['move-cell', colors[col]];
+          if (active_branch == null && move_index == idx) {
+            cls_list.push('move-current');
+          }
+          cells.push(`<div class='${cls_list.join(' ')}' data-type='main' data-idx='${idx}'>${cell_text}</div>`);
+        } else {
+          cells.push(`<div class='move-cell empty'></div>`);
+        }
+      }
+      row_elements.push(`<div class='move-row'>${cells.join('')}</div>`);
+
+      // Insert variation rows after any branch points in this turn
+      for (var col = 0; col < 4; col++) {
+        var bp = turn * 4 + col;
+        if (branches[bp]) {
+          for (var vi = 0; vi < branches[bp].length; vi++) {
+            row_elements.push(buildVariationRows(bp, vi));
+          }
+        }
+      }
+    }
+
+    var move_html = row_elements.join('');
+    $('#move_history').html(move_html);
+
+    // Click handlers — main line moves
+    $('#move_history').off('click').on('click', '.move-cell[data-type="main"]', function() {
+      var target = parseInt($(this).data('idx'));
+      if (!isNaN(target)) {
+        jumpToMainLine(target);
+        displayBoard();
+      }
+    });
+
+    // Click handlers — branch moves
+    $('#move_history').on('click', '.move-cell[data-type="branch"]', function() {
+      var bp = parseInt($(this).data('bp'));
+      var vi = parseInt($(this).data('vi'));
+      var bi = parseInt($(this).data('bi'));
+      if (!isNaN(bp) && !isNaN(vi) && !isNaN(bi)) {
+        jumpToBranch(bp, vi, bi);
+        displayBoard();
+      }
+    });
+
+    // Click handler — delete variation
+    $('#move_history').on('click', '.var-close', function(e) {
+      e.stopPropagation();
+      var bp = parseInt($(this).data('bp'));
+      var vi = parseInt($(this).data('vi'));
+      // If we're in this branch, exit first
+      if (active_branch != null && active_branch.from == bp && active_branch.idx == vi) {
+        exitBranch();
+      }
+      branches[bp].splice(vi, 1);
+      if (branches[bp].length == 0) delete branches[bp];
+      // Fix active_branch index if needed
+      if (active_branch != null && active_branch.from == bp && active_branch.idx > vi) {
+        active_branch.idx--;
+      }
+      displayBoard();
+    });
+
+    // Auto-scroll to current move
+    var current_el = $('#move_history .move-current');
+    if (current_el.length) {
+      current_el[0].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  // --- Engine eval display ---
   var board_key = getBoardKey();
   var eval_results = board_key_to_eval[board_key];
   if (eval_results != null && 'evaluation' in eval_results) {
@@ -361,76 +763,150 @@ function displayBoard() {
     var piece_eval = board.pieceEval();
     var static_eval = Number(parseFloat(eval_results['zero_move_evaluation']) / 100).toFixed(1);
     var eval_html = `eval: ${evaluation} static eval: ${static_eval} <br/> depth: ${search_depth} <br/> piece eval: ${piece_eval}`;
-    var turn_info = `side to move: ${board.turn.getColor().name}`; 
+    var turn_info = `side to move: ${board.turn.getColor().name}`;
     $('#eval_estimate').html(eval_html);
     $('#turn_info').html(turn_info);
 
+    // Display engine line (Stockfish-style)
+    var principal_variation = eval_results['principal_variation'];
+    var col_names = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n'];
+    var row_names = [14,13,12,11,10,9,8,7,6,5,4,3,2,1];
+    if (principal_variation && principal_variation.length > 0) {
+      var best = principal_variation[0];
+      $(`#cell_${best['from']['row']}_${best['from']['col']}`).addClass('engine-best-from');
+      $(`#cell_${best['to']['row']}_${best['to']['col']}`).addClass('engine-best-to');
+
+      var line_parts = [];
+      for (var pv_i = 0; pv_i < principal_variation.length; pv_i++) {
+        var pv_move = principal_variation[pv_i];
+        var pv_color = player_id_to_color[pv_move['turn']];
+        var from_r = pv_move['from']['row'];
+        var from_c = pv_move['from']['col'];
+        var to_r = pv_move['to']['row'];
+        var to_c = pv_move['to']['col'];
+        var piece_at_from = board.getPieceRowCol(from_r, from_c);
+        var piece_short = piece_at_from ? piece_at_from.getPieceType().short_name : '?';
+        var from_sq = `${col_names[from_c]}${row_names[from_r]}`;
+        var to_sq = `${col_names[to_c]}${row_names[to_r]}`;
+        line_parts.push(`<span class="engine-line-move" style="color:${pv_color}">${piece_short}${from_sq}-${to_sq}</span>`);
+      }
+
+      var eval_bar_class = evaluation >= 0 ? 'eval-positive' : 'eval-negative';
+      var engine_html = `<div class="engine-panel">`;
+      engine_html += `<div class="engine-panel-header">`;
+      engine_html += `<span class="engine-eval ${eval_bar_class}">${evaluation >= 0 ? '+' : ''}${evaluation}</span>`;
+      engine_html += `<span class="engine-depth">depth ${search_depth}</span>`;
+      engine_html += `</div>`;
+      engine_html += `<div class="engine-line">${line_parts.join(' <span class="engine-arrow">&rarr;</span> ')}</div>`;
+      engine_html += `</div>`;
+      $('#best_move').html(engine_html);
+    } else {
+      $('#best_move').html('');
+    }
+
     var svg_parts = [];
-    for (const color of ['red', 'blue', 'yellow', 'green']) {
+    for (const c of ['red', 'blue', 'yellow', 'green']) {
       svg_parts.push(`
         <defs>
-          <!-- A marker to be used as an arrowhead -->
-          <marker
-            id="arrow-${color}"
-            fill="${color}"
-            viewBox="0 0 10 10"
-            refX="5"
-            refY="5"
-            markerWidth="3"
-            markerHeight="3"
+          <marker id="arrow-${c}" fill="${c}" viewBox="0 0 10 10"
+            refX="5" refY="5" markerWidth="3" markerHeight="3"
             orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" />
           </marker>
-
         </defs>`);
     }
 
-    var principal_variation = eval_results['principal_variation'];
     var move_overlay = document.getElementById('move_overlay');
     var overlay_rect = move_overlay.getBoundingClientRect();
     for (const key_id in principal_variation) {
       const pv = principal_variation[key_id];
       const turn = pv['turn'];
-      const color = player_id_to_color[turn];
-      const from = pv['from'];
-      const to = pv['to'];
-      const from_row = from['row'];
-      const from_col = from['col'];
-      const from_cell = document.getElementById(`cell_${from_row}_${from_col}`);
-      const to_row = to['row'];
-      const to_col = to['col'];
-      const to_cell = document.getElementById(`cell_${to_row}_${to_col}`);
-
+      const pv_col = player_id_to_color[turn];
+      const from_cell = document.getElementById(`cell_${pv['from']['row']}_${pv['from']['col']}`);
+      const to_cell = document.getElementById(`cell_${pv['to']['row']}_${pv['to']['col']}`);
       const from_rect = from_cell.getBoundingClientRect();
       const to_rect = to_cell.getBoundingClientRect();
-
-      const from_x = from_rect.x - overlay_rect.x + from_rect.width / 2;
-      const from_y = from_rect.y - overlay_rect.y + from_rect.height / 2;
-
-      const to_x = to_rect.x - overlay_rect.x + to_rect.width / 2;
-      const to_y = to_rect.y - overlay_rect.y + to_rect.height / 2;
-
-      const pv_html = `
-        <line
-          x1="${from_x}"
-          y1="${from_y}"
-          x2="${to_x}"
-          y2="${to_y}"
-          stroke="${color}"
-          stroke-width="8"
-          opacity="0.3"
-          marker-end="url(#arrow-${color})"
-          />
-        `;
-
-      svg_parts.push(pv_html);
+      svg_parts.push(`
+        <line x1="${from_rect.x - overlay_rect.x + from_rect.width / 2}"
+              y1="${from_rect.y - overlay_rect.y + from_rect.height / 2}"
+              x2="${to_rect.x - overlay_rect.x + to_rect.width / 2}"
+              y2="${to_rect.y - overlay_rect.y + to_rect.height / 2}"
+              stroke="${pv_col}" stroke-width="8" opacity="0.6"
+              marker-end="url(#arrow-${pv_col})" />`);
     }
-
-    var svg_html = svg_parts.join('\n');
-    $('#move_svg').html(svg_html);
+    $('#move_svg').html(svg_parts.join('\n'));
   } else {
     $('#move_svg').html('');
   }
+
+  // Auto-save position
+  saveState();
+}
+
+// Build HTML for a variation block
+function buildVariationRows(bp, vi) {
+  var branch = branches[bp][vi];
+  var start_col = (bp + 1) % 4;
+  var start_turn = Math.floor((bp + 1) / 4) + 1;
+
+  var html = `<div class='var-block'>`;
+
+  var cur_col = start_col;
+  var cur_turn = start_turn;
+  var row_cells = [];
+  row_cells.push(`<div class='move-number var-number'>(${cur_turn}.</div>`);
+  // Pad empty cells before first branch move
+  for (var p = 0; p < start_col; p++) {
+    row_cells.push(`<div class='move-cell empty'></div>`);
+  }
+
+  for (var bi = 0; bi < branch.length; bi++) {
+    var [mv, pt] = branch[bi];
+    var cell_text = getMoveText(mv, pt);
+    if (mv.getEndsGame() == true) cell_text += '#';
+    var col_color = colors[cur_col];
+    var cls_list = ['move-cell', col_color];
+    if (active_branch != null && active_branch.from == bp && active_branch.idx == vi && active_branch.pos == bi) {
+      cls_list.push('move-current');
+    }
+    row_cells.push(`<div class='${cls_list.join(' ')}' data-type='branch' data-bp='${bp}' data-vi='${vi}' data-bi='${bi}'>${cell_text}</div>`);
+
+    cur_col++;
+    if (cur_col >= 4) {
+      // Complete the row - add close button on first row only
+      if (bi < 4) {
+        row_cells.push(`<div class='var-close' data-bp='${bp}' data-vi='${vi}'>&times;</div>`);
+      }
+      html += `<div class='move-row var-row'>${row_cells.join('')}</div>`;
+      row_cells = [];
+      cur_col = 0;
+      cur_turn++;
+      if (bi < branch.length - 1) {
+        row_cells.push(`<div class='move-number var-number'>${cur_turn}.</div>`);
+      }
+    }
+  }
+
+  // Flush remaining cells
+  if (row_cells.length > 0) {
+    // Pad remaining
+    while (cur_col < 4) {
+      row_cells.push(`<div class='move-cell empty'></div>`);
+      cur_col++;
+    }
+    // Close button if not yet added
+    if (branch.length <= 4) {
+      row_cells.push(`<div class='var-close' data-bp='${bp}' data-vi='${vi}'>&times;</div>`);
+    }
+    // Add closing paren to last move
+    html += `<div class='move-row var-row'>${row_cells.join('')})</div>`;
+  } else {
+    // Last row was complete, add paren
+    html = html.slice(0, -6) + ')</div>'; // append to last </div>
+  }
+
+  html += `</div>`;
+  return html;
 }
 
 function getMoveText(move, piece_type) {
@@ -446,31 +922,157 @@ function getMoveText(move, piece_type) {
   return `${piece_name}${col_name}${row_name}`;
 }
 
+// --- Navigation bar ---
+var playback_interval = null;
+var playback_active = false;
+
+function stopPlayback() {
+  if (playback_interval != null) {
+    clearInterval(playback_interval);
+    playback_interval = null;
+  }
+  playback_active = false;
+  $('#nav_play').html('&#9654;').removeClass('nav-playing');
+}
+
+function startPlayback() {
+  playback_active = true;
+  $('#nav_play').html('&#9646;&#9646;').addClass('nav-playing');
+  playback_interval = setInterval(function() {
+    // Check if we can still advance
+    if (active_branch != null) {
+      var branch = branches[active_branch.from][active_branch.idx];
+      if (active_branch.pos >= branch.length - 1) {
+        stopPlayback();
+        return;
+      }
+    } else if (move_index >= moves.length - 1) {
+      stopPlayback();
+      return;
+    }
+    maybeRedoMove(1);
+  }, 1000);
+}
+
+function jumpToStart() {
+  stopPlayback();
+  if (active_branch != null) exitBranch();
+  if (move_index >= 0) {
+    jumpToMainLine(-1);
+    displayBoard();
+  }
+}
+
+function jumpToEnd() {
+  stopPlayback();
+  if (active_branch != null) {
+    var branch = branches[active_branch.from][active_branch.idx];
+    if (active_branch.pos < branch.length - 1) {
+      jumpToBranch(active_branch.from, active_branch.idx, branch.length - 1);
+      displayBoard();
+    }
+  } else if (move_index < moves.length - 1) {
+    jumpToMainLine(moves.length - 1);
+    displayBoard();
+  }
+}
+
+$('#nav_start').click(function() { jumpToStart(); });
+$('#nav_back4').click(function() { stopPlayback(); maybeUndoMove(4); });
+$('#nav_back1').click(function() { stopPlayback(); maybeUndoMove(1); });
+$('#nav_play').click(function() {
+  if (playback_active) {
+    stopPlayback();
+  } else {
+    startPlayback();
+  }
+});
+$('#nav_fwd1').click(function() { stopPlayback(); maybeRedoMove(1); });
+$('#nav_fwd4').click(function() { stopPlayback(); maybeRedoMove(4); });
+$('#nav_end').click(function() { jumpToEnd(); });
+$('#play_engine_move').click(function() { maybeMakeSuggestedMove(); });
+
+// Board rotation
+$('#nav_rotate').click(function() {
+  board_rotation = (board_rotation + 1) % 4;
+  applyRotation();
+  saveState();
+});
+
+function applyRotation() {
+  var wrapper = $('.board-wrapper');
+  wrapper.removeClass('rotate-0 rotate-90 rotate-180 rotate-270');
+  var deg = board_rotation * 90;
+  wrapper.addClass('rotate-' + deg);
+
+  // Also rotate the SVG overlay
+  var overlay = $('#move_overlay');
+  overlay.css('transform', 'rotate(' + deg + 'deg)');
+
+  // Update player labels around the board
+  updatePlayerLabels();
+
+  // Re-render to fix arrow positions
+  displayBoard();
+}
+
+function updatePlayerLabels() {
+  // Each rotation determines which player sits at which side:
+  //   rotation 0: bottom=red, left=blue, top=yellow, right=green
+  //   rotation 1: bottom=blue, left=yellow, top=green, right=red
+  //   rotation 2: bottom=yellow, left=green, top=red, right=blue
+  //   rotation 3: bottom=green, left=red, top=blue, right=yellow
+  // Corners show the player at their nearest side:
+  //   top-left=left player, top-right=right player,
+  //   bottom-left=left player, bottom-right=right player
+  //   BUT top corners lean toward top player, bottom toward bottom.
+  // Chess.com shows: top-left=top's partner(left), top-right=top's partner(right)
+  //   bottom-left=bottom's partner(left), bottom-right=bottom's partner(right)
+  // Simplest: [top-left, top-right, bottom-left, bottom-right]
+  // [top-left, top-right, bottom-left, bottom-right]
+  // CSS rotate(Ndeg) is clockwise. Default: top=yellow, right=green, bottom=red, left=blue
+  var layouts = [
+    ['yellow', 'green', 'blue', 'red'],        // rotation 0 (0°)
+    ['blue', 'yellow', 'red', 'green'],        // rotation 1 (90° CW): top=blue, right=yellow, bottom=green, left=red
+    ['red', 'blue', 'green', 'yellow'],        // rotation 2 (180°): top=red, right=blue, bottom=yellow, left=green
+    ['green', 'red', 'yellow', 'blue'],        // rotation 3 (270°): top=green, right=red, bottom=blue, left=yellow
+  ];
+
+  var layout = layouts[board_rotation];
+  var corner_ids = ['#player_top_left', '#player_top_right', '#player_bottom_left', '#player_bottom_right'];
+
+  for (var i = 0; i < 4; i++) {
+    var color = layout[i];
+    var name = player_names[color] || color.charAt(0).toUpperCase() + color.slice(1);
+    $(corner_ids[i]).html(`<span class="pname ${color}">${name}</span>`);
+  }
+}
+
+function updatePlayerNamesBar() {
+  // Player names are now shown in corner labels around the board
+  updatePlayerLabels();
+}
+
 $("body").keydown(function(e) {
   if(e.keyCode == 37) { // left
-    maybeUndoMove();
+    stopPlayback(); maybeUndoMove();
   } else if (e.keyCode == 39) { // right
-    maybeRedoMove();
+    stopPlayback(); maybeRedoMove();
   } else if (e.keyCode == 38) { // up
-    maybeUndoMove(4);
+    stopPlayback(); maybeUndoMove(4);
   } else if (e.keyCode == 40) { // down
-    maybeRedoMove(4);
+    stopPlayback(); maybeRedoMove(4);
   } else if (e.keyCode == 32) { // space
     maybeMakeSuggestedMove();
+  } else if (e.keyCode == 36) { // home
+    jumpToStart();
+  } else if (e.keyCode == 35) { // end
+    jumpToEnd();
   }
 });
 
-$('#undo_move').click(function() {
-  maybeUndoMove();
-});
-
-$('#redo_move').click(function() {
-  maybeRedoMove();
-});
-
-var requests_in_flight = {}; // key -> requested search depth
+var requests_in_flight = {};
 var last_board_key = null;
-//var next_depth = 1;
 var controller = new AbortController();
 var signal = controller.signal;
 
@@ -540,7 +1142,7 @@ function requestBoardEvaluation() {
 
   if (!req_pending || req_key != last_board_key) {
     if (req_pending) {
-      controller.abort();  // cancel current request
+      controller.abort();
       controller = new AbortController();
       signal = controller.signal;
     }
@@ -567,7 +1169,6 @@ function requestBoardEvaluation() {
       req_body['secs_per_move'] = secs_per_move;
     }
     var req_text = JSON.stringify(req_body);
-    // create a new request
     var options = {
       method: 'POST',
       headers: {
@@ -591,4 +1192,3 @@ function requestBoardEvaluation() {
 }
 
 })()
-

@@ -93,7 +93,8 @@ export function parseMove(board, move_str) {
   } else {
     var parts = move_str.split(/[-x]/);
     if (parts.length != 2) {
-      throw new Error(`Invalid move string: ${move_str}`);
+      // Possibly an incomplete/truncated move — skip it
+      return null;
     }
     from = parseBoardLocation(parts[0]);
     to = parseBoardLocation(parts[1]);
@@ -111,23 +112,44 @@ export function parseMove(board, move_str) {
 }
 
 export function parseGameFromPGN(pgn_str) {
-  // Remove variations
+  // Extract player names from PGN headers before stripping them
+  var player_names = {red: null, blue: null, yellow: null, green: null};
+  var name_re = /^\[(Red|Blue|Yellow|Green)\s+"([^"]*)"\]$/gmi;
+  var name_match;
+  while ((name_match = name_re.exec(pgn_str)) !== null) {
+    player_names[name_match[1].toLowerCase()] = name_match[2];
+  }
+
+  // Remove variations (parenthesized)
   pgn_str = pgn_str.replaceAll(/\(.*?\)/gs, '');
+  // Remove clock annotations like {[%clk 0:01:58]}
+  pgn_str = pgn_str.replaceAll(/\{[^}]*\}/g, '');
+  // Remove PGN headers like [Event "..."]
+  pgn_str = pgn_str.replaceAll(/^\[.*\]$/gm, '');
+  // Remove check/checkmate symbols
+  pgn_str = pgn_str.replaceAll(/[+#]+/g, '');
+  // Remove result markers
+  pgn_str = pgn_str.replaceAll(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, '');
+
   var parts = pgn_str.split('\n');
-  const re = /^\d+\. (.*)$/;
+  const re = /^\d+\.\s*(.*)$/;
   var moves = [];
   var piece_types = [];
   // TODO: handle other types of start fen positions
   var board = board_util.Board.CreateStandardSetup();
   var matched_lines = 0;
   for (var part of parts) {
+    part = part.trim();
+    if (part === '') continue;
     if (re.test(part)) {
       matched_lines += 1;
       var move_strs = part.match(re)[1].replaceAll('..', '').trim().split(/\s+/);
+      // Filter out empty strings from splitting
+      move_strs = move_strs.filter(s => s !== '');
       if (move_strs.length > 4) {
         console.log('part', part, 'move_strs', move_strs);
         throw new Error(
-            `Expected <= 4 moves per line, found ${move_strs.length}`);
+            `Expected <= 4 moves per line, found ${move_strs.length}: ${move_strs.join(', ')}`);
       }
       for (var i = 0; i < move_strs.length; i++) {
         var move = parseMove(board, move_strs.at(i));
@@ -140,8 +162,8 @@ export function parseGameFromPGN(pgn_str) {
     }
   }
   if (matched_lines == 0) {
-    throw new Error('Invalid PGN: no moves found');
+    throw new Error('Invalid PGN: no moves found. Expected lines like "1. e2-e4 .. Ni10-h8 .. i13-i11 .. Ng5-h7"');
   }
-  return {'board': board, 'moves': moves, 'piece_types': piece_types};
+  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names};
 }
 

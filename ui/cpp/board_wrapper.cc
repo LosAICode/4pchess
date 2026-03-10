@@ -367,7 +367,7 @@ void Player::MakeMove(const v8::FunctionCallbackInfo<v8::Value>& args) {
   // by default, there's no time limit
   std::optional<std::chrono::milliseconds> time_limit;
   auto secs = args[2]->Int32Value(context);
-  if (args[1]->IsInt32() && !secs.IsNothing() && secs.FromJust() > 0) {
+  if (args[2]->IsInt32() && !secs.IsNothing() && secs.FromJust() > 0) {
     time_limit = std::chrono::milliseconds(1000 * secs.FromJust());
   }
   

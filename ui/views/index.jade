@@ -3,8 +3,15 @@ extends layout
 block content
   div.wrapper
     div.lhs
-      div#board
-      div#move_overlay.move-overlay
+      div.board-labels-top
+        div#player_top_left.player-corner
+        div#player_top_right.player-corner
+      div.board-area
+        div#board
+        div#move_overlay.move-overlay
+      div.board-labels-bottom
+        div#player_bottom_left.player-corner
+        div#player_bottom_right.player-corner
     div.rhs
       div.settings
         input(placeholder='Max depth')#max_depth
@@ -12,10 +19,21 @@ block content
       div.evaluation
         div#eval_estimate.eval-estimate
         div#turn_info.turn-info
-      div.move-controls
-        div#undo_move.move-button.chevron-left
-        div#redo_move.move-button.chevron-right
+        div#best_move.best-move
+      div.nav-bar
+        button#nav_rotate.nav-btn(title='Rotate board')
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+        button#nav_start.nav-btn(title='Go to start') |&#9664;
+        button#nav_back4.nav-btn(title='Back 4 moves') &#9664;&#9664;
+        button#nav_back1.nav-btn(title='Back 1 move') &#9664;
+        button#nav_play.nav-btn.nav-play(title='Play / Pause') &#9654;
+        button#nav_fwd1.nav-btn(title='Forward 1 move') &#9654;
+        button#nav_fwd4.nav-btn(title='Forward 4 moves') &#9654;&#9654;
+        button#nav_end.nav-btn(title='Go to end') &#9654;|
+        button#play_engine_move.nav-btn.nav-engine(title='Play engine move')
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a2 2 0 012 2v1h3a3 3 0 013 3v2h1a2 2 0 110 4h-1v2a3 3 0 01-3 3h-1v2a1 1 0 11-2 0v-2h-4v2a1 1 0 11-2 0v-2H7a3 3 0 01-3-3v-2H3a2 2 0 110-4h1V8a3 3 0 013-3h3V4a2 2 0 012-2zm-2 9a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm4 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/></svg>
       div#move_history
       div.pgn
-        textarea(placeholder='Enter PGN')#pgn_input.pgn-input
+        textarea(placeholder='Paste PGN here (e.g. from chess.com 4PC)')#pgn_input.pgn-input
+        button#load_pgn.load-pgn-btn Load PGN
         p#pgn_error.pgn-error
