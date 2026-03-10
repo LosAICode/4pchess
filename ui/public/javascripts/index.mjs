@@ -1046,9 +1046,10 @@ function applyRotation() {
   var deg = deg_map[board_rotation];
   wrapper.addClass('rotate-' + deg);
 
-  // Also rotate the SVG overlay
+  // Don't rotate the overlay — arrow coords are computed from visual cell positions
+  // via getBoundingClientRect(), which already accounts for the board CSS rotation
   var overlay = $('#move_overlay');
-  overlay.css('transform', 'rotate(' + deg + 'deg)');
+  overlay.css('transform', 'none');
 
   // Update player labels around the board
   updatePlayerLabels();
