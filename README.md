@@ -1,116 +1,161 @@
 # 4 Player Chess Engine
 
-This project implements a [4 player](https://www.chess.com/terms/4-player-chess)
-teams chess engine.
+A [4-player teams chess](https://www.chess.com/terms/4-player-chess) engine with a web-based UI for playing and analyzing games.
 
 ## What can you do with it?
 
-*  Play against the computer
-*  Analyze your games
+- Play against the engine
+- Analyze your games (paste PGN from chess.com 4PC)
+- Explore variations without losing the main line
+- View engine evaluation with Stockfish-style analysis panel
+- Rotate the board to view from any player's perspective
 
-## Requirements
+## Prerequisites
 
-*  Node JS
-*  Bazel
+| Tool | Version | Notes |
+|------|---------|-------|
+| **Node.js** | 18+ | [Download](https://nodejs.org/) |
+| **Python** | 3.x | Required by node-gyp for compiling C++ |
+| **C++ build tools** | — | See below |
 
-## Command line / UCI
+### C++ Build Tools
 
-This project implements the chess UCI [protocol](https://gist.github.com/DOBRO/2592c6dad754ba67e6dcaec8c90165bf).
+The engine is written in C++ and compiled as a native Node.js addon via `node-gyp`.
 
-To build, you have a couple of options:
+**Windows:**
 ```
-# Option 1 (bazel):
-bazel build -c opt cli
-
-# Option 2 (Makefile):
-make cli
+npm install -g windows-build-tools
 ```
+Or install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the "Desktop development with C++" workload.
 
-After building, run the program:
+**macOS:**
 ```
-bazel-bin/cli  # for bazel
-# or just `./cli` for make
-```
-
-Then, analyze a position as below.
-
-### From the start position
-
-```
-go
+xcode-select --install
 ```
 
-### From a position specified by FEN
-
+**Linux (Ubuntu/Debian):**
 ```
-position fen <some FEN>
-go
+sudo apt install build-essential python3
 ```
 
-## Play against the computer
+## Installation
 
-1. Initialize node js (one time):
+```bash
+# 1. Clone the repo
+git clone https://github.com/LosAICode/4pchess.git
+cd 4pchess
 
-```
+# 2. Install Node.js dependencies
 cd ui
 npm install
-```
 
-2. Start the server:
+# 3. Build the C++ engine addon
+npx node-gyp rebuild
 
-```
-node-gyp install
+# 4. Start the server
 node app.js
 ```
 
-3. Go to http://localhost:3000
+Open **http://localhost:3333** in your browser.
 
-## Code organization
+## Usage
 
-*  `board.h/cc`: Classes representing the board.
-*  `player.h/cc`: Classes representing the player.
-*  `ui` directory: Related to the website and UI for playing.
+### Play against the engine
 
-### Run tests
+- Click or drag pieces to make moves
+- The engine evaluates every position automatically
+- Press the **bot icon** (⚙) in the nav bar to play the engine's suggested move
+- Use **Space** key as a shortcut for the engine move
 
+### Load a game from chess.com
+
+1. Copy a PGN from a chess.com 4-player chess game
+2. Paste it into the PGN textarea at the bottom of the sidebar
+3. The game loads automatically — click any move to jump to that position
+
+### Navigation
+
+| Control | Action |
+|---------|--------|
+| `←` / `→` | Back / forward 1 move |
+| `↑` / `↓` | Back / forward 4 moves |
+| `Home` / `End` | Jump to start / end |
+| `Space` | Play engine move |
+| ▶ button | Auto-play moves (1 per second) |
+| 🔄 button | Rotate board (Red → Blue → Yellow → Green) |
+
+### Analyze variations
+
+Play a different move at any point to create a variation branch. The main line is preserved — you can click any move in the history to jump back. Close a variation with the **×** button.
+
+### Settings
+
+- **Max depth** — limit engine search depth
+- **Max secs per move** — limit engine thinking time
+
+Settings persist across sessions.
+
+## Command Line / UCI
+
+The engine also supports the UCI [protocol](https://gist.github.com/DOBRO/2592c6dad754ba67e6dcaec8c90165bf).
+
+```bash
+# Build with Bazel
+bazel build -c opt cli
+
+# Or with Make
+make cli
+
+# Run
+./cli
 ```
+
+Then use standard UCI commands:
+```
+go                          # analyze from start position
+position fen <FEN>          # set position
+go                          # analyze
+```
+
+## Code Organization
+
+| Path | Description |
+|------|-------------|
+| `board.h/cc` | Board representation and move generation |
+| `player.h/cc` | Player classes |
+| `transposition_table.h/cc` | Transposition table for search |
+| `move_picker.h/cc` | Move ordering |
+| `ui/` | Web UI (Express.js + native C++ addon) |
+| `ui/cpp/` | Node.js ↔ C++ bridge (V8 API) |
+| `ui/public/javascripts/` | Frontend JS (board rendering, PGN parser) |
+| `ui/public/stylesheets/` | CSS (dark theme) |
+| `ui/routes/` | Express routes + engine worker thread |
+
+## Running Tests
+
+```bash
 # All unit tests
 bazel test -c opt :all
 
-# Performance test: you'll want to run with --test_output=all
+# Performance test
 bazel test -c opt speed_test --test_output=all
 ```
 
-### A/B tests for playing strength
+## Troubleshooting
 
-Use [simplechessmatch](https://github.com/tonyjh/simplechessmatch) to test
-the strength of changes.
+**`node-gyp rebuild` fails:**
+- Ensure you have C++ build tools installed (see Prerequisites)
+- On Windows, run from a "Developer Command Prompt" or ensure `msbuild` is in PATH
+- Try `npx node-gyp rebuild --verbose` to see detailed errors
 
-Example:
+**Port 3333 already in use:**
+- Kill the existing process or change the port in `ui/app.js`
 
-```
-# A/B engine test with 250 ms per move for quick quality tests
-./scm --e1 /Users/louisobryan/tmp/4pchess/cli --e2 /Users/louisobryan/4pchess/cli --fixed 250 --games 500 --threads 10 --fens FENs_4PC_balanced.txt \
-    --custom1 "setoption name threads value 1" \
-    --custom2 "setoption name threads value 1" \
-    --pgn4 /tmp/games.pgn4 \
-    --margin 3000 \
-    --maxmoves 200
-```
+**PGN doesn't load:**
+- Ensure it's a chess.com 4-player chess PGN format
+- Check the red error message below the PGN textarea for details
 
-It is recommended to test with 5000 ms per move for confidence on the results.
+## Credits
 
-Once the run completes, you can check whether the result is significant
-by testing whether the p-value is less than `0.05`. For example,
-
-```
-python3 ttest.py --n_wins=243 --n_losses=199 --n_draws=25
-# => Ttest_1sampResult(statistic=2.100107728239835, pvalue=0.01811446939295551)
-```
-
-### Regression tests
-
-```
-bazel run -c opt regression_tests --test_output=all --runs_per_test=30
-```
-
+- Engine by [obryanlouis](https://github.com/obryanlouis/4pchess)
+- UI overhaul by LosChess
