@@ -232,36 +232,54 @@ a {
   position: relative;
 }
 
-.board-labels-top,
-.board-labels-bottom {
-  display: flex;
-  justify-content: space-between;
-  width: 700px;
-  padding: 0 2px;
-}
-
-.player-corner {
+/* Player badges inside board corners */
+.player-badge {
+  position: absolute;
+  z-index: 10;
+  padding: 4px 8px;
+  border-radius: 4px;
   font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  padding: 3px 0;
-  min-height: 20px;
   white-space: nowrap;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+  line-height: 1.3;
 }
 
-.player-corner .pname {
-  padding: 1px 4px;
+.badge-tl {
+  top: 4px;
+  left: 4px;
 }
 
-.player-corner .pname.red { color: #e87272; }
-.player-corner .pname.blue { color: #6bb5f0; }
-.player-corner .pname.yellow { color: #d4c94a; }
-.player-corner .pname.green { color: #6abf7b; }
+.badge-tr {
+  top: 4px;
+  right: 4px;
+  text-align: right;
+}
+
+.badge-bl {
+  bottom: 4px;
+  left: 4px;
+}
+
+.badge-br {
+  bottom: 4px;
+  right: 4px;
+  text-align: right;
+}
+
+.player-badge.color-red { background: rgba(191, 59, 67, 0.85); }
+.player-badge.color-blue { background: rgba(50, 120, 180, 0.85); }
+.player-badge.color-yellow { background: rgba(180, 160, 40, 0.85); }
+.player-badge.color-green { background: rgba(60, 140, 75, 0.85); }
 
 .pname-elo {
-  color: #888;
-  font-size: 11px;
+  display: block;
+  font-size: 10px;
   font-weight: 400;
+  opacity: 0.85;
 }
 
 /* Theme picker */

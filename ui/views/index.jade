@@ -3,15 +3,13 @@ extends layout
 block content
   div.wrapper
     div.lhs
-      div.board-labels-top
-        div#player_top_left.player-corner
-        div#player_top_right.player-corner
       div.board-area
         div#board
         div#move_overlay.move-overlay
-      div.board-labels-bottom
-        div#player_bottom_left.player-corner
-        div#player_bottom_right.player-corner
+        div#player_top_left.player-badge.badge-tl
+        div#player_top_right.player-badge.badge-tr
+        div#player_bottom_left.player-badge.badge-bl
+        div#player_bottom_right.player-badge.badge-br
     div.rhs
       div.settings
         input(placeholder='Max depth')#max_depth

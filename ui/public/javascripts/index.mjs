@@ -1072,7 +1072,10 @@ function updatePlayerLabels() {
     var name = player_names[color] || color.charAt(0).toUpperCase() + color.slice(1);
     var elo = player_elos[color];
     var elo_html = elo ? `<span class="pname-elo">(${elo})</span>` : '';
-    $(corner_ids[i]).html(`<span class="pname ${color}">${name}</span> ${elo_html}`);
+    var el = $(corner_ids[i]);
+    el.removeClass('color-red color-blue color-yellow color-green');
+    el.addClass('color-' + color);
+    el.html(`${name}${elo_html}`);
   }
 }
 
