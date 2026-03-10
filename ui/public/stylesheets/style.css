@@ -79,7 +79,7 @@ a {
 
 /* Engine panel (Stockfish-style) */
 .engine-panel {
-  background: #1e1e2e;
+  background: #302e2b;
   border-radius: 6px;
   padding: 8px 12px;
   font-family: 'JetBrains Mono', 'Consolas', monospace;
