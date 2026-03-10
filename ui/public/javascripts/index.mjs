@@ -1066,11 +1066,13 @@ function updatePlayerLabels() {
   //   rotation 3 (90°):  top=blue,   right=red,   bottom=green, left=yellow
   // Corner mapping: TL=top, TR=right, BL=left, BR=bottom
   // [top-left, top-right, bottom-left, bottom-right]
+  // TL=top player, TR=right player, BL=left player, BR=bottom player
+  // deg_map = [0, 270, 180, 90]
   var layouts = [
-    ['yellow', 'green', 'blue', 'red'],        // rotation 0
-    ['green', 'yellow', 'red', 'blue'],        // rotation 1
-    ['red', 'blue', 'green', 'yellow'],        // rotation 2
-    ['blue', 'red', 'yellow', 'green'],        // rotation 3
+    ['yellow', 'green', 'blue', 'red'],        // rotation 0 (0°): top=Y, right=G, left=B, bottom=R
+    ['green', 'red', 'yellow', 'blue'],        // rotation 1 (270°): top=G, right=R, left=Y, bottom=B
+    ['red', 'blue', 'green', 'yellow'],        // rotation 2 (180°): top=R, right=B, left=G, bottom=Y
+    ['blue', 'yellow', 'red', 'green'],        // rotation 3 (90°): top=B, right=Y, left=R, bottom=G
   ];
 
   var layout = layouts[board_rotation];
