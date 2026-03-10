@@ -22,8 +22,9 @@ var auto_play_interval = null;
 var board_rotation = 0;
 const rotation_order = ['red', 'blue', 'yellow', 'green'];
 
-// Player names from PGN
+// Player names and ELOs from PGN
 var player_names = {red: null, blue: null, yellow: null, green: null};
+var player_elos = {red: null, blue: null, yellow: null, green: null};
 
 // Variation support
 var branches = {};        // {move_index: [[[move, piece_type], ...]]}
@@ -135,7 +136,7 @@ function restoreState() {
       for (var i = 0; i < res['moves'].length; i++) {
         moves_and_piece_types.push([res['moves'][i], res['piece_types'][i]]);
       }
-      resetBoard(res['board'], moves_and_piece_types, res['player_names']);
+      resetBoard(res['board'], moves_and_piece_types, res['player_names'], res['player_elos']);
 
       // Restore move position
       var saved_idx = parseInt(window.localStorage['saved_move_index']);
@@ -207,7 +208,7 @@ $(document).ready(function() {
         for (var i = 0; i < pgn_moves.length; i++) {
           moves_and_piece_types.push([pgn_moves.at(i), piece_types.at(i)]);
         }
-        resetBoard(pgn_board, moves_and_piece_types, res['player_names']);
+        resetBoard(pgn_board, moves_and_piece_types, res['player_names'], res['player_elos']);
         displayBoard();
         $('#pgn_error').text(`Loaded ${pgn_moves.length} moves successfully.`);
         $('#pgn_error').css('color', 'green');
@@ -221,7 +222,7 @@ $(document).ready(function() {
   $('#load_pgn').click(loadPGN);
 })
 
-function resetBoard(set_board = null, set_moves = null, set_player_names = null) {
+function resetBoard(set_board = null, set_moves = null, set_player_names = null, set_player_elos = null) {
   if (set_board == null) {
     board = board_util.Board.CreateStandardSetup();
     moves = [];
@@ -239,6 +240,11 @@ function resetBoard(set_board = null, set_moves = null, set_player_names = null)
     player_names = set_player_names;
   } else {
     player_names = {red: null, blue: null, yellow: null, green: null};
+  }
+  if (set_player_elos) {
+    player_elos = set_player_elos;
+  } else {
+    player_elos = {red: null, blue: null, yellow: null, green: null};
   }
   updatePlayerNamesBar();
   updatePlayerLabels();
@@ -992,6 +998,30 @@ $('#nav_fwd4').click(function() { stopPlayback(); maybeRedoMove(4); });
 $('#nav_end').click(function() { jumpToEnd(); });
 $('#play_engine_move').click(function() { maybeMakeSuggestedMove(); });
 
+// Board theme
+function applyTheme(light, dark) {
+  document.documentElement.style.setProperty('--sq-light', light);
+  document.documentElement.style.setProperty('--sq-dark', dark);
+  window.localStorage['theme_light'] = light;
+  window.localStorage['theme_dark'] = dark;
+  $('.theme-btn').removeClass('theme-active');
+  $(`.theme-btn[data-light="${light}"][data-dark="${dark}"]`).addClass('theme-active');
+}
+
+// Restore saved theme
+(function() {
+  var sl = window.localStorage['theme_light'];
+  var sd = window.localStorage['theme_dark'];
+  if (sl && sd) applyTheme(sl, sd);
+  else $('.theme-btn').first().addClass('theme-active');
+})();
+
+$('.theme-btn').click(function() {
+  var light = $(this).data('light');
+  var dark = $(this).data('dark');
+  applyTheme(light, dark);
+});
+
 // Board rotation
 $('#nav_rotate').click(function() {
   board_rotation = (board_rotation + 1) % 4;
@@ -1002,7 +1032,10 @@ $('#nav_rotate').click(function() {
 function applyRotation() {
   var wrapper = $('.board-wrapper');
   wrapper.removeClass('rotate-0 rotate-90 rotate-180 rotate-270');
-  var deg = board_rotation * 90;
+  // Rotation 0=red bottom, 1=blue bottom, 2=yellow bottom, 3=green bottom
+  // CSS degrees needed: [0, 270, 180, 90] (counter-clockwise to bring left/top/right to bottom)
+  var deg_map = [0, 270, 180, 90];
+  var deg = deg_map[board_rotation];
   wrapper.addClass('rotate-' + deg);
 
   // Also rotate the SVG overlay
@@ -1017,25 +1050,18 @@ function applyRotation() {
 }
 
 function updatePlayerLabels() {
-  // Each rotation determines which player sits at which side:
-  //   rotation 0: bottom=red, left=blue, top=yellow, right=green
-  //   rotation 1: bottom=blue, left=yellow, top=green, right=red
-  //   rotation 2: bottom=yellow, left=green, top=red, right=blue
-  //   rotation 3: bottom=green, left=red, top=blue, right=yellow
-  // Corners show the player at their nearest side:
-  //   top-left=left player, top-right=right player,
-  //   bottom-left=left player, bottom-right=right player
-  //   BUT top corners lean toward top player, bottom toward bottom.
-  // Chess.com shows: top-left=top's partner(left), top-right=top's partner(right)
-  //   bottom-left=bottom's partner(left), bottom-right=bottom's partner(right)
-  // Simplest: [top-left, top-right, bottom-left, bottom-right]
+  // Sides after each rotation (using deg_map [0, 270, 180, 90]):
+  //   rotation 0 (0°):   top=yellow, right=green, bottom=red, left=blue
+  //   rotation 1 (270°): top=green,  right=yellow, bottom=blue, left=red
+  //   rotation 2 (180°): top=red,    right=blue,  bottom=yellow, left=green
+  //   rotation 3 (90°):  top=blue,   right=red,   bottom=green, left=yellow
+  // Corner mapping: TL=top, TR=right, BL=left, BR=bottom
   // [top-left, top-right, bottom-left, bottom-right]
-  // CSS rotate(Ndeg) is clockwise. Default: top=yellow, right=green, bottom=red, left=blue
   var layouts = [
-    ['yellow', 'green', 'blue', 'red'],        // rotation 0 (0°)
-    ['blue', 'yellow', 'red', 'green'],        // rotation 1 (90° CW): top=blue, right=yellow, bottom=green, left=red
-    ['red', 'blue', 'green', 'yellow'],        // rotation 2 (180°): top=red, right=blue, bottom=yellow, left=green
-    ['green', 'red', 'yellow', 'blue'],        // rotation 3 (270°): top=green, right=red, bottom=blue, left=yellow
+    ['yellow', 'green', 'blue', 'red'],        // rotation 0
+    ['green', 'yellow', 'red', 'blue'],        // rotation 1
+    ['red', 'blue', 'green', 'yellow'],        // rotation 2
+    ['blue', 'red', 'yellow', 'green'],        // rotation 3
   ];
 
   var layout = layouts[board_rotation];
@@ -1044,7 +1070,9 @@ function updatePlayerLabels() {
   for (var i = 0; i < 4; i++) {
     var color = layout[i];
     var name = player_names[color] || color.charAt(0).toUpperCase() + color.slice(1);
-    $(corner_ids[i]).html(`<span class="pname ${color}">${name}</span>`);
+    var elo = player_elos[color];
+    var elo_html = elo ? `<span class="pname-elo">(${elo})</span>` : '';
+    $(corner_ids[i]).html(`<span class="pname ${color}">${name}</span> ${elo_html}`);
   }
 }
 

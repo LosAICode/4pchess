@@ -112,12 +112,18 @@ export function parseMove(board, move_str) {
 }
 
 export function parseGameFromPGN(pgn_str) {
-  // Extract player names from PGN headers before stripping them
+  // Extract player names and ELOs from PGN headers before stripping them
   var player_names = {red: null, blue: null, yellow: null, green: null};
+  var player_elos = {red: null, blue: null, yellow: null, green: null};
   var name_re = /^\[(Red|Blue|Yellow|Green)\s+"([^"]*)"\]$/gmi;
   var name_match;
   while ((name_match = name_re.exec(pgn_str)) !== null) {
     player_names[name_match[1].toLowerCase()] = name_match[2];
+  }
+  var elo_re = /^\[(Red|Blue|Yellow|Green)Elo\s+"([^"]*)"\]$/gmi;
+  var elo_match;
+  while ((elo_match = elo_re.exec(pgn_str)) !== null) {
+    player_elos[elo_match[1].toLowerCase()] = elo_match[2];
   }
 
   // Remove variations (parenthesized)
@@ -164,6 +170,6 @@ export function parseGameFromPGN(pgn_str) {
   if (matched_lines == 0) {
     throw new Error('Invalid PGN: no moves found. Expected lines like "1. e2-e4 .. Ni10-h8 .. i13-i11 .. Ng5-h7"');
   }
-  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names};
+  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names, 'player_elos': player_elos};
 }
 
