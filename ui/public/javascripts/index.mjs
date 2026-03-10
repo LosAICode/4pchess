@@ -220,6 +220,14 @@ $(document).ready(function() {
   $('#pgn_input').on('input', loadPGN);
   $('#pgn_input').change(loadPGN);
   $('#load_pgn').click(loadPGN);
+  $('#clear_pgn').click(function() {
+    $('#pgn_input').val('');
+    $('#pgn_error').text('');
+    resetBoard();
+    displayBoard();
+    try { delete window.localStorage['saved_pgn']; } catch(e) {}
+    saveState();
+  });
 })
 
 function resetBoard(set_board = null, set_moves = null, set_player_names = null, set_player_elos = null) {
