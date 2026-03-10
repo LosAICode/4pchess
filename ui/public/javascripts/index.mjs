@@ -790,10 +790,12 @@ function displayBoard() {
       $(`#cell_${best['from']['row']}_${best['from']['col']}`).addClass('engine-best-from');
       $(`#cell_${best['to']['row']}_${best['to']['col']}`).addClass('engine-best-to');
 
+      var pv_color_map = {red: '#e87272', blue: '#6bb5f0', yellow: '#d4c94a', green: '#6abf7b'};
       var line_parts = [];
       for (var pv_i = 0; pv_i < principal_variation.length; pv_i++) {
         var pv_move = principal_variation[pv_i];
-        var pv_color = player_id_to_color[pv_move['turn']];
+        var pv_color_name = player_id_to_color[pv_move['turn']];
+        var pv_color = pv_color_map[pv_color_name] || pv_color_name;
         var from_r = pv_move['from']['row'];
         var from_c = pv_move['from']['col'];
         var to_r = pv_move['to']['row'];
