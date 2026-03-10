@@ -252,22 +252,22 @@ a {
 }
 
 .badge-tl {
-  top: 96px;
+  top: 104px;
   left: 0;
 }
 
 .badge-tr {
-  top: 96px;
+  top: 104px;
   right: 0;
 }
 
 .badge-bl {
-  bottom: 96px;
+  bottom: 104px;
   left: 0;
 }
 
 .badge-br {
-  bottom: 96px;
+  bottom: 104px;
   right: 0;
 }
 
