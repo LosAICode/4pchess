@@ -126,6 +126,23 @@ export function parseGameFromPGN(pgn_str) {
     player_elos[elo_match[1].toLowerCase()] = elo_match[2];
   }
 
+  // Detect SelfPartner mode: one player controls red+yellow, another controls blue+green
+  var is_self_partner = false;
+  var variant_re = /^\[RuleVariants\s+"([^"]*)"\]$/gmi;
+  var variant_match;
+  while ((variant_match = variant_re.exec(pgn_str)) !== null) {
+    if (variant_match[1].includes('SelfPartner')) {
+      is_self_partner = true;
+    }
+  }
+  if (is_self_partner) {
+    // Red controls Yellow, Blue controls Green
+    if (player_names.red && !player_names.yellow) player_names.yellow = player_names.red;
+    if (player_names.blue && !player_names.green) player_names.green = player_names.blue;
+    if (player_elos.red && !player_elos.yellow) player_elos.yellow = player_elos.red;
+    if (player_elos.blue && !player_elos.green) player_elos.green = player_elos.blue;
+  }
+
   // Remove variations (parenthesized)
   pgn_str = pgn_str.replaceAll(/\(.*?\)/gs, '');
   // Remove clock annotations like {[%clk 0:01:58]}
