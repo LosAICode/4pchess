@@ -1,6 +1,6 @@
 :root {
   --sq-light: #ebeae6;
-  --sq-dark: #5d5f60;
+  --sq-dark: #4a4c4d;
 }
 
 body {
@@ -157,6 +157,10 @@ a {
 
 .last-move-green {
   background-color: rgba(106, 191, 123, 0.3) !important;
+}
+
+.in-check {
+  background: radial-gradient(ellipse at center, rgba(255, 0, 0, 0.8) 0%, rgba(200, 0, 0, 0.5) 40%, rgba(100, 0, 0, 0.15) 100%) !important;
 }
 
 /* Navigation bar */
@@ -384,6 +388,47 @@ a {
   transition: none;
   left: 0px;
   pointer-events: none;
+}
+
+.game-title {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #262522;
+  border-radius: 4px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 6px;
+}
+
+.game-title.visible {
+  display: flex;
+}
+
+.gt-time {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gt-variant {
+  color: #c0c0c0;
+  font-weight: 500;
+}
+
+.gt-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid #8a8a6c;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #c8c8a0;
+  letter-spacing: 0.5px;
 }
 
 #move_history {

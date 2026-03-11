@@ -126,11 +126,25 @@ export function parseGameFromPGN(pgn_str) {
     player_elos[elo_match[1].toLowerCase()] = elo_match[2];
   }
 
+  // Extract game info from PGN headers
+  var game_info = {time_control: null, variant: null, rule_variants: null};
+  var tc_re = /^\[TimeControl\s+"([^"]*)"\]$/gmi;
+  var tc_match;
+  while ((tc_match = tc_re.exec(pgn_str)) !== null) {
+    game_info.time_control = tc_match[1];
+  }
+  var var_re = /^\[Variant\s+"([^"]*)"\]$/gmi;
+  var var_match;
+  while ((var_match = var_re.exec(pgn_str)) !== null) {
+    game_info.variant = var_match[1];
+  }
+
   // Detect SelfPartner mode: one player controls red+yellow, another controls blue+green
   var is_self_partner = false;
   var variant_re = /^\[RuleVariants\s+"([^"]*)"\]$/gmi;
   var variant_match;
   while ((variant_match = variant_re.exec(pgn_str)) !== null) {
+    game_info.rule_variants = variant_match[1];
     if (variant_match[1].includes('SelfPartner')) {
       is_self_partner = true;
     }
@@ -187,6 +201,6 @@ export function parseGameFromPGN(pgn_str) {
   if (matched_lines == 0) {
     throw new Error('Invalid PGN: no moves found. Expected lines like "1. e2-e4 .. Ni10-h8 .. i13-i11 .. Ng5-h7"');
   }
-  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names, 'player_elos': player_elos};
+  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names, 'player_elos': player_elos, 'game_info': game_info};
 }
 

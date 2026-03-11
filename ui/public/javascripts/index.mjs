@@ -26,6 +26,12 @@ const rotation_order = ['red', 'blue', 'yellow', 'green'];
 var player_names = {red: null, blue: null, yellow: null, green: null};
 var player_elos = {red: null, blue: null, yellow: null, green: null};
 
+// Game info from PGN headers
+var game_info = {time_control: null, variant: null, rule_variants: null};
+
+// Move annotations: '+' for check, '#' for checkmate, '' otherwise
+var move_annotations = [];
+
 // Variation support
 var branches = {};        // {move_index: [[[move, piece_type], ...]]}
 var active_branch = null; // null or {from: N, idx: I, pos: P}
@@ -136,7 +142,7 @@ function restoreState() {
       for (var i = 0; i < res['moves'].length; i++) {
         moves_and_piece_types.push([res['moves'][i], res['piece_types'][i]]);
       }
-      resetBoard(res['board'], moves_and_piece_types, res['player_names'], res['player_elos']);
+      resetBoard(res['board'], moves_and_piece_types, res['player_names'], res['player_elos'], res['game_info']);
 
       // Restore move position
       var saved_idx = parseInt(window.localStorage['saved_move_index']);
@@ -208,7 +214,7 @@ $(document).ready(function() {
         for (var i = 0; i < pgn_moves.length; i++) {
           moves_and_piece_types.push([pgn_moves.at(i), piece_types.at(i)]);
         }
-        resetBoard(pgn_board, moves_and_piece_types, res['player_names'], res['player_elos']);
+        resetBoard(pgn_board, moves_and_piece_types, res['player_names'], res['player_elos'], res['game_info']);
         displayBoard();
         $('#pgn_error').text(`Loaded ${pgn_moves.length} moves successfully.`);
         $('#pgn_error').css('color', 'green');
@@ -230,7 +236,7 @@ $(document).ready(function() {
   });
 })
 
-function resetBoard(set_board = null, set_moves = null, set_player_names = null, set_player_elos = null) {
+function resetBoard(set_board = null, set_moves = null, set_player_names = null, set_player_elos = null, set_game_info = null) {
   if (set_board == null) {
     board = board_util.Board.CreateStandardSetup();
     moves = [];
@@ -254,6 +260,13 @@ function resetBoard(set_board = null, set_moves = null, set_player_names = null,
   } else {
     player_elos = {red: null, blue: null, yellow: null, green: null};
   }
+  if (set_game_info) {
+    game_info = set_game_info;
+  } else {
+    game_info = {time_control: null, variant: null, rule_variants: null};
+  }
+  computeMoveAnnotations();
+  updateGameTitle();
   updatePlayerNamesBar();
   updatePlayerLabels();
 }
@@ -430,6 +443,13 @@ function performMove(move, piece_type) {
   moves.push([move, piece_type]);
   move_index = moves.length - 1;
   checkEndsGame(move);
+  // Annotate the new move
+  if (move.getEndsGame() === true) {
+    move_annotations.push('#');
+  } else {
+    var kings_in_check = getKingsInCheck();
+    move_annotations.push(Object.keys(kings_in_check).length > 0 ? '+' : '');
+  }
   displayBoard();
 }
 
@@ -636,10 +656,64 @@ function getLastMovePerPlayer() {
   return result;
 }
 
+// --- Check detection ---
+
+function getKingsInCheck() {
+  var result = {};
+  var players = [board_util.kRedPlayer, board_util.kBluePlayer,
+                 board_util.kYellowPlayer, board_util.kGreenPlayer];
+  for (var p of players) {
+    var kingLoc = board.getKingLocation(p);
+    if (kingLoc != null) {
+      var team = p.getTeam();
+      var otherTeam = team.equals(board_util.Team.RedYellow)
+        ? board_util.Team.BlueGreen : board_util.Team.RedYellow;
+      if (board.isAttackedByTeam(otherTeam, kingLoc)) {
+        var color = p.getColor().name.toLowerCase();
+        result[color] = kingLoc;
+      }
+    }
+  }
+  return result;
+}
+
+function computeMoveAnnotations() {
+  move_annotations = [];
+  if (moves.length === 0) return;
+  var temp = board_util.Board.CreateStandardSetup();
+  for (var i = 0; i < moves.length; i++) {
+    var [mv, pt] = moves[i];
+    temp.makeMove(mv);
+    // Check if any king is now in check
+    var found_check = false;
+    var players = [board_util.kRedPlayer, board_util.kBluePlayer,
+                   board_util.kYellowPlayer, board_util.kGreenPlayer];
+    for (var p of players) {
+      var kingLoc = temp.getKingLocation(p);
+      if (kingLoc != null) {
+        var team = p.getTeam();
+        var otherTeam = team.equals(board_util.Team.RedYellow)
+          ? board_util.Team.BlueGreen : board_util.Team.RedYellow;
+        if (temp.isAttackedByTeam(otherTeam, kingLoc)) {
+          found_check = true;
+          break;
+        }
+      }
+    }
+    if (found_check) {
+      // Check if it's checkmate (no legal moves) or just check
+      var is_mate = (mv.getEndsGame() === true) || (temp.getAllLegalMoves().length === 0);
+      move_annotations.push(is_mate ? '#' : '+');
+    } else {
+      move_annotations.push('');
+    }
+  }
+}
+
 // --- Display ---
 
 function displayBoard() {
-  $('.cell').removeClass(piece_classes_str + ' engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green');
+  $('.cell').removeClass(piece_classes_str + ' engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green in-check');
 
   Object.values(board.location_to_piece).forEach(function(loc_piece) {
     var loc, piece;
@@ -652,6 +726,13 @@ function displayBoard() {
     var class_name = `${color_name}-${piece_name}`;
     $(`#${cell_id}`).addClass(class_name);
   });
+
+  // Highlight kings in check with red background
+  var kings_in_check = getKingsInCheck();
+  for (var color in kings_in_check) {
+    var kLoc = kings_in_check[color];
+    $(`#cell_${kLoc.getRow()}_${kLoc.getCol()}`).addClass('in-check');
+  }
 
   const legal_move_indicator_class = 'legal-move-indicator';
   const legal_capture_indicator_class = 'legal-capture-indicator';
@@ -697,7 +778,7 @@ function displayBoard() {
         if (idx < moves.length) {
           var [mv, pt] = moves[idx];
           var cell_text = getMoveText(mv, pt);
-          if (mv.getEndsGame() == true) cell_text += '#';
+          if (move_annotations[idx]) cell_text += move_annotations[idx];
           var cls_list = ['move-cell', colors[col]];
           if (active_branch == null && move_index == idx) {
             cls_list.push('move-current');
@@ -879,7 +960,7 @@ function buildVariationRows(bp, vi) {
   for (var bi = 0; bi < branch.length; bi++) {
     var [mv, pt] = branch[bi];
     var cell_text = getMoveText(mv, pt);
-    if (mv.getEndsGame() == true) cell_text += '#';
+    if (mv.getEndsGame() === true) cell_text += '#';
     var col_color = colors[cur_col];
     var cls_list = ['move-cell', col_color];
     if (active_branch != null && active_branch.from == bp && active_branch.idx == vi && active_branch.pos == bi) {
@@ -925,17 +1006,22 @@ function buildVariationRows(bp, vi) {
   return html;
 }
 
+const col_names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n'];
+const row_names = [14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+
 function getMoveText(move, piece_type) {
   var to = move.getTo();
-  var row = to.getRow();
-  var col = to.getCol();
-  const col_names = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n'];
-  const row_names = [14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
-  var row_name = row_names.at(row);
-  var col_name = col_names.at(col);
+  var from = move.getFrom();
+  var row_name = row_names[to.getRow()];
+  var col_name = col_names[to.getCol()];
   var piece_name = piece_type.short_name;
-  return `${piece_name}${col_name}${row_name}`;
+  var capture = move.getCapture();
+  var sep = capture != null ? 'x' : '';
+  // For pawn captures, show origin column (e.g. fxg12)
+  if (piece_name === '' && capture != null) {
+    piece_name = col_names[from.getCol()];
+  }
+  return `${piece_name}${sep}${col_name}${row_name}`;
 }
 
 // --- Navigation bar ---
@@ -1089,6 +1175,55 @@ function updatePlayerLabels() {
     el.removeClass('color-red color-blue color-yellow color-green');
     el.addClass('color-' + color);
     el.html(`${name}${elo_html}`);
+  }
+}
+
+function formatTimeControl(tc) {
+  // Parse "120+10" or "2+10" style time controls
+  // chess.com uses seconds format like "120+10" (120s base + 10s increment)
+  // but also "2+10" could mean 2 min + 10 sec
+  if (!tc) return null;
+  var parts = tc.split('+');
+  if (parts.length !== 2) return tc;
+  var base = parseInt(parts[0]);
+  var inc = parseInt(parts[1]);
+  if (isNaN(base) || isNaN(inc)) return tc;
+  // If base >= 60, treat as seconds; otherwise treat as minutes
+  if (base >= 60) base = Math.floor(base / 60);
+  return `${base} | ${inc}`;
+}
+
+function detectRuleVariantTags(rule_variants) {
+  if (!rule_variants) return [];
+  var tags = [];
+  // Only show meaningful tags (skip EnPassant/Pawn2Squares as they're standard)
+  var display = ['Modern', 'SelfPartner', 'Anonymous'];
+  for (var tag of display) {
+    if (rule_variants.includes(tag)) {
+      tags.push(tag.toUpperCase());
+    }
+  }
+  return tags;
+}
+
+function updateGameTitle() {
+  var el = $('#game_title');
+  if (!game_info.time_control && !game_info.variant && !game_info.rule_variants) {
+    el.removeClass('visible').html('');
+    return;
+  }
+  var parts = [];
+  var tc = formatTimeControl(game_info.time_control);
+  if (tc) parts.push(`<span class="gt-time">${tc}</span>`);
+  if (game_info.variant) parts.push(`<span class="gt-variant">${game_info.variant}</span>`);
+  var tags = detectRuleVariantTags(game_info.rule_variants);
+  for (var tag of tags) {
+    parts.push(`<span class="gt-tag">${tag}</span>`);
+  }
+  if (parts.length > 0) {
+    el.html(parts.join(' ')).addClass('visible');
+  } else {
+    el.removeClass('visible').html('');
   }
 }
 
