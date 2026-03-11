@@ -205,6 +205,8 @@ a {
   color: #fff;
   font-size: 15px;
   padding: 6px 12px;
+  width: 42px;
+  box-sizing: border-box;
 }
 
 .nav-play:hover {
@@ -213,7 +215,8 @@ a {
 
 .nav-playing {
   background: #7c4a4a;
-  letter-spacing: -2px;
+  font-size: 13px;
+  letter-spacing: -3px;
 }
 
 .nav-playing:hover {
