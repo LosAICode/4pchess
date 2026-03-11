@@ -32,6 +32,12 @@ var game_info = {time_control: null, variant: null, rule_variants: null};
 // Move annotations: '+' for check, '#' for checkmate, '' otherwise
 var move_annotations = [];
 
+// User-drawn arrows and square highlights
+var user_arrows = [];        // [{from_row, from_col, to_row, to_col, color}]
+var user_highlights = [];    // [{row, col, color}]
+var arrow_drag_state = null; // {from_row, from_col, startX, startY, color}
+var user_arrow_colors = {red: '#e87272', blue: '#6bb5f0', yellow: '#d4c94a', green: '#6abf7b'};
+
 // Variation support
 var branches = {};        // {move_index: [[[move, piece_type], ...]]}
 var active_branch = null; // null or {from: N, idx: I, pos: P}
@@ -233,6 +239,63 @@ $(document).ready(function() {
     displayBoard();
     try { delete window.localStorage['saved_pgn']; } catch(e) {}
     saveState();
+  });
+
+  // --- User-drawn arrows and highlights ---
+  $('#board').on('contextmenu', function(e) {
+    e.preventDefault();
+  });
+
+  $('#board').on('mousedown', '.cell', function(e) {
+    if (e.button !== 2) return; // only right-click
+    var row = $(this).data('row');
+    var col = $(this).data('col');
+    if (row == null || col == null) return;
+    // Ignore blocked (corner) cells
+    if ($(this).hasClass('blocked')) return;
+    var color = 'yellow'; // default
+    if (e.altKey) color = 'blue';
+    else if (e.shiftKey) color = 'green';
+    else if (e.ctrlKey) color = 'red';
+    arrow_drag_state = {from_row: row, from_col: col, startX: e.pageX, startY: e.pageY, color: color};
+  });
+
+  $(document).on('mouseup', function(e) {
+    if (e.button !== 2 || arrow_drag_state == null) return;
+    var ds = arrow_drag_state;
+    arrow_drag_state = null;
+    var target = getCellFromPoint(e.clientX, e.clientY);
+    if (!target) return;
+    if (target.row === ds.from_row && target.col === ds.from_col) {
+      // Same cell — toggle square highlight
+      var hlColor = ds.color;
+      if (hlColor === 'yellow') hlColor = 'red'; // default highlight is red
+      var existIdx = user_highlights.findIndex(function(h) {
+        return h.row === target.row && h.col === target.col && h.color === hlColor;
+      });
+      if (existIdx >= 0) {
+        user_highlights.splice(existIdx, 1);
+      } else {
+        // Remove any existing highlight on this cell first
+        user_highlights = user_highlights.filter(function(h) {
+          return !(h.row === target.row && h.col === target.col);
+        });
+        user_highlights.push({row: target.row, col: target.col, color: hlColor});
+      }
+    } else {
+      // Different cell — toggle arrow
+      var existIdx = user_arrows.findIndex(function(a) {
+        return a.from_row === ds.from_row && a.from_col === ds.from_col
+            && a.to_row === target.row && a.to_col === target.col && a.color === ds.color;
+      });
+      if (existIdx >= 0) {
+        user_arrows.splice(existIdx, 1);
+      } else {
+        user_arrows.push({from_row: ds.from_row, from_col: ds.from_col,
+                          to_row: target.row, to_col: target.col, color: ds.color});
+      }
+    }
+    displayBoard();
   });
 })
 
@@ -514,7 +577,13 @@ function tryPlayMoveToLoc(loc, from_legal_moves) {
 }
 
 $('#board').on('mousedown', '.cell', function(e) {
+  if (e.button !== 0) return; // only handle left-click here
   e.preventDefault();
+  // Clear user arrows and highlights on left-click
+  if (user_arrows.length > 0 || user_highlights.length > 0) {
+    user_arrows = [];
+    user_highlights = [];
+  }
   var row = $(this).data('row');
   var col = $(this).data('col');
   var loc = new board_util.BoardLocation(row, col);
@@ -712,8 +781,26 @@ function computeMoveAnnotations() {
 
 // --- Display ---
 
+function renderUserArrows(svg_parts, overlay_rect) {
+  for (var a of user_arrows) {
+    var from_cell = document.getElementById(`cell_${a.from_row}_${a.from_col}`);
+    var to_cell = document.getElementById(`cell_${a.to_row}_${a.to_col}`);
+    if (!from_cell || !to_cell) continue;
+    var from_rect = from_cell.getBoundingClientRect();
+    var to_rect = to_cell.getBoundingClientRect();
+    var col = user_arrow_colors[a.color] || a.color;
+    svg_parts.push(`
+      <line x1="${from_rect.x - overlay_rect.x + from_rect.width / 2}"
+            y1="${from_rect.y - overlay_rect.y + from_rect.height / 2}"
+            x2="${to_rect.x - overlay_rect.x + to_rect.width / 2}"
+            y2="${to_rect.y - overlay_rect.y + to_rect.height / 2}"
+            stroke="${col}" stroke-width="7" opacity="0.8"
+            marker-end="url(#arrow-${a.color})" />`);
+  }
+}
+
 function displayBoard() {
-  $('.cell').removeClass(piece_classes_str + ' engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green in-check');
+  $('.cell').removeClass(piece_classes_str + ' engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green in-check user-hl-red user-hl-blue user-hl-green user-hl-yellow');
 
   Object.values(board.location_to_piece).forEach(function(loc_piece) {
     var loc, piece;
@@ -732,6 +819,11 @@ function displayBoard() {
   for (var color in kings_in_check) {
     var kLoc = kings_in_check[color];
     $(`#cell_${kLoc.getRow()}_${kLoc.getCol()}`).addClass('in-check');
+  }
+
+  // Render user square highlights
+  for (var hl of user_highlights) {
+    $(`#cell_${hl.row}_${hl.col}`).addClass('user-hl-' + hl.color);
   }
 
   const legal_move_indicator_class = 'legal-move-indicator';
@@ -905,7 +997,7 @@ function displayBoard() {
     for (const c of ['red', 'blue', 'yellow', 'green']) {
       svg_parts.push(`
         <defs>
-          <marker id="arrow-${c}" fill="${c}" viewBox="0 0 10 10"
+          <marker id="arrow-${c}" fill="${user_arrow_colors[c]}" viewBox="0 0 10 10"
             refX="5" refY="5" markerWidth="3" markerHeight="3"
             orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" />
@@ -923,17 +1015,37 @@ function displayBoard() {
       const to_cell = document.getElementById(`cell_${pv['to']['row']}_${pv['to']['col']}`);
       const from_rect = from_cell.getBoundingClientRect();
       const to_rect = to_cell.getBoundingClientRect();
+      var pv_hex = user_arrow_colors[pv_col] || pv_col;
       svg_parts.push(`
         <line x1="${from_rect.x - overlay_rect.x + from_rect.width / 2}"
               y1="${from_rect.y - overlay_rect.y + from_rect.height / 2}"
               x2="${to_rect.x - overlay_rect.x + to_rect.width / 2}"
               y2="${to_rect.y - overlay_rect.y + to_rect.height / 2}"
-              stroke="${pv_col}" stroke-width="8" opacity="0.6"
+              stroke="${pv_hex}" stroke-width="8" opacity="0.6"
               marker-end="url(#arrow-${pv_col})" />`);
     }
+    // User-drawn arrows
+    renderUserArrows(svg_parts, overlay_rect);
     $('#move_svg').html(svg_parts.join('\n'));
   } else {
-    $('#move_svg').html('');
+    // No engine eval — still render user arrows
+    var svg_parts = [];
+    for (const c of ['red', 'blue', 'yellow', 'green']) {
+      svg_parts.push(`
+        <defs>
+          <marker id="arrow-${c}" fill="${user_arrow_colors[c]}" viewBox="0 0 10 10"
+            refX="5" refY="5" markerWidth="3" markerHeight="3"
+            orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" />
+          </marker>
+        </defs>`);
+    }
+    if (user_arrows.length > 0) {
+      var move_overlay = document.getElementById('move_overlay');
+      var overlay_rect = move_overlay.getBoundingClientRect();
+      renderUserArrows(svg_parts, overlay_rect);
+    }
+    $('#move_svg').html(svg_parts.join('\n'));
   }
 
   // Auto-save position

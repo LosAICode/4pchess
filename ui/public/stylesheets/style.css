@@ -163,6 +163,12 @@ a {
   box-shadow: inset 0 0 12px 6px rgba(255, 0, 0, 0.85), inset 0 0 4px 2px rgba(255, 0, 0, 0.6);
 }
 
+/* User-drawn square highlights */
+.user-hl-red { background-color: rgba(235, 70, 70, 0.45) !important; }
+.user-hl-green { background-color: rgba(70, 190, 90, 0.45) !important; }
+.user-hl-blue { background-color: rgba(70, 130, 230, 0.45) !important; }
+.user-hl-yellow { background-color: rgba(230, 210, 70, 0.45) !important; }
+
 /* Navigation bar */
 .nav-bar {
   display: flex;
