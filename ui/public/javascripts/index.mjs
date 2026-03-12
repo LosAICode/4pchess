@@ -231,6 +231,14 @@ $(document).ready(function() {
   }
   $('#pgn_input').on('input', loadPGN);
   $('#pgn_input').change(loadPGN);
+  $('#new_game').click(function() {
+    $('#pgn_input').val('');
+    $('#pgn_error').text('');
+    resetBoard();
+    displayBoard();
+    try { delete window.localStorage['saved_pgn']; } catch(e) {}
+    saveState();
+  });
   $('#load_pgn').click(loadPGN);
   $('#clear_pgn').click(function() {
     $('#pgn_input').val('');
@@ -1345,6 +1353,10 @@ function updatePlayerNamesBar() {
 }
 
 $("body").keydown(function(e) {
+  // Ignore shortcuts when typing in an input/textarea
+  var tag = e.target.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+
   if(e.keyCode == 37) { // left
     stopPlayback(); maybeUndoMove();
   } else if (e.keyCode == 39) { // right
@@ -1354,11 +1366,35 @@ $("body").keydown(function(e) {
   } else if (e.keyCode == 40) { // down
     stopPlayback(); maybeRedoMove(4);
   } else if (e.keyCode == 32) { // space
+    e.preventDefault();
     maybeMakeSuggestedMove();
   } else if (e.keyCode == 36) { // home
     jumpToStart();
   } else if (e.keyCode == 35) { // end
     jumpToEnd();
+  } else if (e.key === 'r' || e.key === 'R') { // rotate board 90°
+    board_rotation = (board_rotation + 1) % 4;
+    applyRotation();
+    saveState();
+  } else if (e.key === 'f' || e.key === 'F') { // flip board 180°
+    board_rotation = (board_rotation + 2) % 4;
+    applyRotation();
+    saveState();
+  } else if (e.key === 'p' || e.key === 'P') { // toggle auto-play
+    if (playback_active) {
+      stopPlayback();
+    } else {
+      startPlayback();
+    }
+  } else if (e.key === 'e' || e.key === 'E') { // play engine move
+    maybeMakeSuggestedMove();
+  } else if (e.key === 'n' || e.key === 'N') { // new game
+    $('#pgn_input').val('');
+    $('#pgn_error').text('');
+    resetBoard();
+    displayBoard();
+    try { delete window.localStorage['saved_pgn']; } catch(e2) {}
+    saveState();
   }
 });
 
