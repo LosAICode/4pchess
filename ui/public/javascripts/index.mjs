@@ -408,12 +408,12 @@ function jumpToMainLine(target_index) {
   if (move_index == null) move_index = -1;
   // Now on main line at move_index
   if (target_index < move_index) {
-    for (var i = 0; i < move_index - target_index; i++) {
-      board.undoMove();
+    for (var i = move_index; i > target_index; i--) {
+      if (!isElimination(moves[i])) board.undoMove();
     }
   } else if (target_index > move_index) {
     for (var i = move_index + 1; i <= target_index; i++) {
-      board.makeMove(moves[i][0]);
+      if (!isElimination(moves[i])) board.makeMove(moves[i][0]);
     }
   }
   move_index = target_index;
@@ -517,9 +517,9 @@ function performMove(move, piece_type) {
 
   // On main line
   if (move_index < moves.length - 1) {
-    // Mid-game: check if matches next main line move
-    var next = moves[move_index + 1][0];
-    if (movesEqual(next, move)) {
+    // Mid-game: check if matches next main line move (skip elimination entries)
+    var next_entry = moves[move_index + 1];
+    if (!isElimination(next_entry) && movesEqual(next_entry[0], move)) {
       board.makeMove(moves[move_index + 1][0]);
       move_index++;
       displayBoard();
@@ -765,9 +765,12 @@ function getLastMovePerPlayer() {
   // Walk backwards to find the last move for each color
   // Turn order: red(0), blue(1), yellow(2), green(3) repeating
   for (var i = effective_moves.length - 1; i >= 0; i--) {
+    var entry = effective_moves[i];
+    // Skip elimination entries — they have no board move
+    if (isElimination(entry)) continue;
     var color = colors[i % 4];
     if (result[color] == null) {
-      result[color] = effective_moves[i][0];
+      result[color] = entry[0];
     }
     // Stop early if we found all 4
     if (result.red && result.blue && result.yellow && result.green) break;
@@ -801,6 +804,11 @@ function computeMoveAnnotations() {
   if (moves.length === 0) return;
   var temp = board_util.Board.CreateStandardSetup();
   for (var i = 0; i < moves.length; i++) {
+    // Skip virtual elimination entries
+    if (isElimination(moves[i])) {
+      move_annotations.push('');
+      continue;
+    }
     var [mv, pt] = moves[i];
     temp.makeMove(mv);
     // Check if any king is now in check
@@ -924,12 +932,21 @@ function displayBoard() {
       for (var col = 0; col < 4; col++) {
         var idx = turn * 4 + col;
         if (idx < moves.length) {
-          var [mv, pt] = moves[idx];
-          var cell_text = getMoveText(mv, pt);
-          if (move_annotations[idx]) cell_text += move_annotations[idx];
+          var entry = moves[idx];
+          var cell_text;
+          if (isElimination(entry)) {
+            cell_text = entry[0].type; // '#', 'R', or 'T'
+          } else {
+            var [mv, pt] = entry;
+            cell_text = getMoveText(mv, pt);
+            if (move_annotations[idx]) cell_text += move_annotations[idx];
+          }
           var cls_list = ['move-cell', colors[col]];
           if (active_branch == null && move_index == idx) {
             cls_list.push('move-current');
+          }
+          if (isElimination(entry)) {
+            cls_list.push('move-elimination');
           }
           cells.push(`<div class='${cls_list.join(' ')}' data-type='main' data-idx='${idx}'>${cell_text}</div>`);
         } else {
@@ -1177,7 +1194,19 @@ function buildVariationRows(bp, vi) {
 const col_names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n'];
 const row_names = [14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 
+function isElimination(move_entry) {
+  // move_entry is [move_or_elim, piece_type] — check the first element
+  if (Array.isArray(move_entry)) {
+    return move_entry[0] && move_entry[0].elimination === true;
+  }
+  return move_entry && move_entry.elimination === true;
+}
+
 function getMoveText(move, piece_type) {
+  // Virtual elimination entries
+  if (move && move.elimination) {
+    return move.type; // '#', 'R', or 'T'
+  }
   var to = move.getTo();
   var from = move.getFrom();
   var row_name = row_names[to.getRow()];

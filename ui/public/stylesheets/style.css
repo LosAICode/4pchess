@@ -167,6 +167,11 @@ a {
   filter: grayscale(1) brightness(0.7);
 }
 
+.move-elimination {
+  opacity: 0.6;
+  font-style: italic;
+}
+
 /* User-drawn square highlights */
 .user-hl-red { background-color: rgba(235, 70, 70, 0.45) !important; }
 .user-hl-green { background-color: rgba(70, 190, 90, 0.45) !important; }

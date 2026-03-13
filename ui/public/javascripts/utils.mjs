@@ -195,8 +195,11 @@ export function parseGameFromPGN(pgn_str) {
       for (var i = 0; i < move_strs.length; i++) {
         var token = move_strs[i];
         if (token === '#' || token === 'R' || token === 'T') {
-          // Player at position i is eliminated
-          eliminations[player_order[i]] = moves.length > 0 ? moves.length - 1 : 0;
+          // Push a virtual elimination entry — no board state change
+          var elim = {elimination: true, type: token, color: player_order[i]};
+          moves.push(elim);
+          piece_types.push(null);
+          eliminations[player_order[i]] = moves.length - 1;
           continue;
         }
         var move = parseMove(board, token);
