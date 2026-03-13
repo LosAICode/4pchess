@@ -163,6 +163,10 @@ a {
   box-shadow: inset 0 0 12px 6px rgba(255, 0, 0, 0.85), inset 0 0 4px 2px rgba(255, 0, 0, 0.6);
 }
 
+.cell.eliminated {
+  filter: grayscale(1) brightness(0.7);
+}
+
 /* User-drawn square highlights */
 .user-hl-red { background-color: rgba(235, 70, 70, 0.45) !important; }
 .user-hl-green { background-color: rgba(70, 190, 90, 0.45) !important; }
@@ -764,6 +768,134 @@ a {
 
 .green-queen {
   background-image: url('data:image/svg+xml;base64,CjxzdmcgdmVyc2lvbj0iMS4xIiBpZD0iTGF5ZXJfMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgeD0iMHB4IiB5PSIwcHgiCiAgIHZpZXdCb3g9IjAgMCAxODAgMTgwIiBzdHlsZT0iZW5hYmxlLWJhY2tncm91bmQ6bmV3IDAgMCAxODAgMTgwOyIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSI+CjxkZWZzPgo8c3R5bGU+Ci5jbHMtMXtmaWxsOm5vbmU7fS5jbHMtMntmaWxsOiM0RTkxNjE7fS5jbHMtMywuY2xzLTR7b3BhY2l0eTowLjI7fS5jbHMtNHtmaWxsOiNmZmY7fS5jbHMtNXtmaWxsOiMxYTFhMWE7fTwvc3R5bGU+CjwvZGVmcz4KPHRpdGxlPnE8L3RpdGxlPgo8cmVjdCBjbGFzcz0iY2xzLTEiIHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIi8+CjxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTExMS4xMiwyMC42MkExNC42MywxNC42MywwLDAsMCw5Ni41MSwzNS4yM2ExMy45MiwxMy45MiwwLDAsMCw1LjQxLDEwLjkzTDkwLjU0LDc5LDc5LjE1LDQ2LjE2YTEzLjkyLDEzLjkyLDAsMCwwLDUuNDEtMTAuOTNBMTQuNjMsMTQuNjMsMCwwLDAsNzAsMjAuNjIsMTQuNDYsMTQuNDYsMCwwLDAsNTUuMzQsMzUuMjNhMTMuNjcsMTMuNjcsMCwwLDAsOS4yMiwxMy4xNkw2Mi43Myw4Ny4xMSw0Nyw3MC4zMmExMy43NywxMy43NywwLDAsMCwyLjI1LTYuOTVBMTQuMjIsMTQuMjIsMCwwLDAsMzUuNDUsNDkuNDMsMTMuOSwxMy45LDAsMCwwLDIxLjUxLDYzLjM3YzAsNi42LDUuNDUsMTIuODYsMTEuNTcsMTMuNjlsMjMuMDYsNTUuNDZjLTE2LjQ0LDMuMDYtMTYuNDIsMTIuOTUtMTYuMzksMjQuMzF2My42MkgxNDEuMzJ2LTMuNjFjMC0xMS4zNy4wNi0yMS4yNi0xNi4zOS0yNC4zMkwxNDgsNzcuMDZjNi4xMy0uODMsMTEuNTgtNy4wOSwxMS41OC0xMy42OWExNCwxNCwwLDAsMC0xMy45NS0xMy45NCwxNC4yMiwxNC4yMiwwLDAsMC0xMy43OCwxMy45NCwxMy42NCwxMy42NCwwLDAsMCwyLjI2LDYuOTVMMTE4LjM1LDg3LjExbC0xLjgzLTM4LjczYTEzLjg4LDEzLjg4LDAsMCwwLDkuMjEtMTMuMTUsMTQuNDUsMTQuNDUsMCwwLDAtMTQuNjEtMTQuNjFaIi8+CjxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTQwLjI0LDUyLjM0YzUuMzEsNi43OS0zLjg1LDEyLjgyLDEuMjYsMTguMzRMNjQuNzIsOTIuMTdsLTE3LjQtMjNzMi4yLTUuNjQuODEtOS44QzQ1LDUwLDQwLjI0LDUyLjM0LDQwLjI0LDUyLjM0WiIvPgo8cGF0aCBjbGFzcz0iY2xzLTQiIGQ9Ik0zOC40Miw1MS4zM2MtNC44MS40NS0xMi4yMiw1Ljg1LTEzLjkyLDE2Ljg0LS4xMy43OS01LjQ5LTUsMS42LTEzLjJDMzEuNjksNDguNDcsMzguNDIsNTEuMzMsMzguNDIsNTEuMzNaIi8+CjxwYXRoIGNsYXNzPSJjbHMtNCIgZD0iTTE0OC44NCw1MS4zM2MtNC44LjQ1LTEyLjIyLDUuODUtMTMuOTIsMTYuODQtLjEyLjc5LTUuNDgtNSwxLjYxLTEzLjJDMTQyLjExLDQ4LjQ3LDE0OC44NCw1MS4zMywxNDguODQsNTEuMzNaIi8+CjxwYXRoIGNsYXNzPSJjbHMtNCIgZD0iTTcyLjU0LDIyLjc1Yy01LjE0LjUzLTEzLjIyLDYuNzktMTQsMTkuNDQsMCwwLTUuMjktNy4zNiwxLjcyLTE1LjY4QzY1Ljc4LDIwLDcyLjU0LDIyLjc1LDcyLjU0LDIyLjc1WiIvPgo8cGF0aCBjbGFzcz0iY2xzLTQiIGQ9Ik0xMTMuNDQsMjIuNzVjLTUuMTQuNTMtMTMuMjIsNi43OS0xNCwxOS40NCwwLDAtNS4yOC03LjM2LDEuNzItMTUuNjhDMTA2LjY5LDIwLDExMy40NCwyMi43NSwxMTMuNDQsMjIuNzVaIi8+CjxwYXRoIGNsYXNzPSJjbHMtNCIgZD0iTTkxLjEyLDEzOC40MWM0My4wNywwLDQ3LjU0LDQuNzUsNDcuNTQsNC43NWguNTljLTEuOTMtMTAuMTgtMjQuNS0xMS4zLTI0LjUtMTEuM0g2Ny42NXMtMjMuMzYuODEtMjQuNjYsMTEuM2guNTlTNDguMDUsMTM4LjQxLDkxLjEyLDEzOC40MVoiLz4KPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNMTE2LjIsMTEyLjgzYy0xNS43NCwxNy0zMS4zOCwxNi41LTMxLjM4LDE2LjVsMzkuNzQsMy4xLDIzLjMxLTU1LjExczUuNDItLjYyLDkuNDYtNy4zNGM2LTkuOTQtNS41My0xNy4wOS01LjUzLTE3LjA5LDMuNjEsNC4xOSwzLjA4LDExLjE1LDAsMTRzLTcuODYsMy4zMS05LjY5LDcuNDhDMTQyLjE1LDc0LjM2LDEzMS4yMiw5Ni41OCwxMTYuMiwxMTIuODNaIi8+CjxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTExNi44MywyMy4zNmM3LjY0LDEwLjUzLTYuODgsMTQtNiwyMy41Nmw1Ljc1LDQ1LDAtNDNzMTAuMDgtNi4xMSw5LjE4LTEzLjQyQzEyNC4zNywyNCwxMTYuODMsMjMuMzYsMTE2LjgzLDIzLjM2WiIvPgo8cGF0aCBjbGFzcz0iY2xzLTMiIGQ9Ik03Mi42OSw0NS40NSw5MC41NCw4NS4xLDc5LjE2LDQ2LjQ5czQuMzUtNi4zNCw0LjM1LTExLjgxYzAtMTAuMDYtOC40NS0xMi04LjQ1LTEyQzgzLjE5LDMzLjU3LDY5LjUxLDM1LjkxLDcyLjY5LDQ1LjQ1WiIvPgo8cGF0aCBjbGFzcz0iY2xzLTUiIGQ9Ik0xNDUuNjMsNDcuNDNjLTguNDEsMC0xNS43OSw3LjQ1LTE1Ljc5LDE1Ljk0QTE0Ljc3LDE0Ljc3LDAsMCwwLDEzMS42Miw3MGwtMTEuNSwxMi4yNi0xLjU0LTMyLjU4YTE2LDE2LDAsMCwwLDkuMTUtMTQuNDgsMTYuNDMsMTYuNDMsMCwwLDAtMTYuNjEtMTYuNjFBMTYuNjMsMTYuNjMsMCwwLDAsOTQuNTEsMzUuMjMsMTYsMTYsMCwwLDAsOTkuNTgsNDYuOGwtOSwyNi4wOUw4MS40OSw0Ni44YTE2LDE2LDAsMCwwLDUuMDctMTEuNTdBMTYuNjMsMTYuNjMsMCwwLDAsNzAsMTguNjIsMTYuNDQsMTYuNDQsMCwwLDAsNTMuMzQsMzUuMjMsMTUuNzUsMTUuNzUsMCwwLDAsNjIuNSw0OS43NEw2MSw4Mi4yOSw0OS40NSw3MGExNC43MSwxNC43MSwwLDAsMCwxLjc4LTYuNjZjMC04LjQ5LTcuMzctMTUuOTQtMTUuNzgtMTUuOTRBMTYsMTYsMCwwLDAsMTkuNTEsNjMuMzcsMTYuMzQsMTYuMzQsMCwwLDAsMzEuNjUsNzguODRsMjEuNzIsNTIuMjNjLTE1LjY4LDMuODctMTUuNjUsMTQuNTQtMTUuNjIsMjUuNzd2NS42MUgxNDMuMzJ2LTUuNjFjMC0xMS4yNC4wNi0yMS45LTE1LjYyLTI1Ljc3bDIxLjcyLTUyLjIzYTE2LjM0LDE2LjM0LDAsMCwwLDEyLjE1LTE1LjQ3QTE2LDE2LDAsMCwwLDE0NS42Myw0Ny40M1ptLTYuMzEsMTExSDQxLjc2YzAtMTMtLjgyLTIyLDE3LjItMjQuMzVsLjU4LS4wOWEyNTcuMTEsMjU3LjExLDAsMCwxLDMxLjU4LTEuNiwyNDMuODEsMjQzLjgxLDAsMCwxLDMxLDEuNjlDMTQwLjEzLDEzNi40NiwxMzkuMzIsMTQ1LjQsMTM5LjMyLDE1OC40NVptNy4zLTgzLjI5LTIyLjg5LDU1LS43NS0uMWEyNTQsMjU0LDAsMCwwLTMxLjg2LTEuNjlBMjU5LDI1OSwwLDAsMCw1OSwxMzBjLS41Ny4wNy0xLjEyLjE1LTEuNjYuMjRMMzQuNDYsNzUuMTZjLTUuNDgsMC0xMC45NS01LjY1LTEwLjk1LTExLjc5QTExLjg5LDExLjg5LDAsMCwxLDM1LjQ1LDUxLjQzLDEyLjIsMTIuMiwwLDAsMSw0Ny4yMyw2My4zN2MwLDMuNzItMi44Miw3LjE0LTIuODIsNy4xNEw2NC41LDkxLjkybDIuMTQtNDUuMDdhMTEuNjEsMTEuNjEsMCwwLDEtOS4zLTExLjYyQTEyLjQxLDEyLjQxLDAsMCwxLDcwLDIyLjYyYTEyLjYsMTIuNiwwLDAsMSwxMi42LDEyLjYxLDExLjg1LDExLjg1LDAsMCwxLTUuOCwxMC4xMkw5MC41NCw4NS4xbDEzLjc4LTM5Ljc1YTExLjg2LDExLjg2LDAsMCwxLTUuODEtMTAuMTIsMTIuNjEsMTIuNjEsMCwwLDEsMTIuNjEtMTIuNjEsMTIuNCwxMi40LDAsMCwxLDEyLjYxLDEyLjYxLDExLjcyLDExLjcyLDAsMCwxLTkuMjksMTEuNjJsMi4xNCw0NS4wNywyMC4wOC0yMS40MXMtMi44Mi0zLjQtMi44Mi03LjE0YTEyLjIsMTIuMiwwLDAsMSwxMS43OS0xMS45NCwxMS44OSwxMS44OSwwLDAsMSwxMS45NCwxMS45NEMxNTcuNTcsNjkuNTEsMTUyLjEsNzUuMTYsMTQ2LjYyLDc1LjE2WiIvPgo8L3N2Zz4K');
+}
+
+/* --- Saved games --- */
+.pgn-buttons {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.pgn-buttons .load-pgn-btn {
+  flex: 1;
+  margin: 0;
+}
+
+.save-game-form {
+  display: none;
+  margin-bottom: 4px;
+}
+
+.save-game-form.visible {
+  display: block;
+}
+
+.save-game-name-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #3a3835;
+  color: #eee;
+  font-size: 13px;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}
+
+.save-game-form-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.save-game-form-buttons .load-pgn-btn {
+  flex: 1;
+  margin: 0;
+}
+
+.saved-games-list {
+  display: none;
+  margin-top: 4px;
+  background: #302e2b;
+  border-radius: 4px;
+  padding: 2px 0;
+}
+
+.saved-games-list.visible {
+  display: block;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.saved-game-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.saved-game-row:hover {
+  background: rgba(255,255,255,0.07);
+}
+
+.saved-game-name {
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.saved-game-row:hover .saved-game-name {
+  color: #ddd;
+}
+
+.saved-game-date {
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
+  margin: 0 6px;
+}
+
+.saved-game-delete {
+  display: none;
+  padding: 0 5px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.saved-game-row:hover .saved-game-delete {
+  display: block;
+}
+
+.saved-game-delete:hover {
+  color: #e55;
+}
+
+.saved-games-empty {
+  padding: 8px 6px;
+  text-align: center;
+  color: #666;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.saved-games-more {
+  padding: 3px 6px;
+  font-size: 11px;
+  color: #666;
+  cursor: default;
 }
 
 .green-king {

@@ -79,6 +79,8 @@ export function parseMove(board, move_str) {
   if (move_str == '#' || move_str == 'R' || move_str == 'T') {
     return null;
   }
+  // Strip trailing # from moves like Qk8-m10#
+  move_str = move_str.replace(/#$/, '');
   var from = null;
   var to = null;
   var promotion_piece_type = null;
@@ -163,8 +165,8 @@ export function parseGameFromPGN(pgn_str) {
   pgn_str = pgn_str.replaceAll(/\{[^}]*\}/g, '');
   // Remove PGN headers like [Event "..."]
   pgn_str = pgn_str.replaceAll(/^\[.*\]$/gm, '');
-  // Remove check/checkmate symbols
-  pgn_str = pgn_str.replaceAll(/[+#]+/g, '');
+  // Remove check symbols (preserve standalone # for checkmate elimination)
+  pgn_str = pgn_str.replaceAll(/\+/g, '');
   // Remove result markers
   pgn_str = pgn_str.replaceAll(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, '');
 
@@ -172,6 +174,8 @@ export function parseGameFromPGN(pgn_str) {
   const re = /^\d+\.\s*(.*)$/;
   var moves = [];
   var piece_types = [];
+  var eliminations = {}; // {color: move_index} — move index after which that player's pieces are grey
+  var player_order = ['red', 'blue', 'yellow', 'green'];
   // TODO: handle other types of start fen positions
   var board = board_util.Board.CreateStandardSetup();
   var matched_lines = 0;
@@ -189,7 +193,13 @@ export function parseGameFromPGN(pgn_str) {
             `Expected <= 4 moves per line, found ${move_strs.length}: ${move_strs.join(', ')}`);
       }
       for (var i = 0; i < move_strs.length; i++) {
-        var move = parseMove(board, move_strs.at(i));
+        var token = move_strs[i];
+        if (token === '#' || token === 'R' || token === 'T') {
+          // Player at position i is eliminated
+          eliminations[player_order[i]] = moves.length > 0 ? moves.length - 1 : 0;
+          continue;
+        }
+        var move = parseMove(board, token);
         if (move != null) {
           piece_types.push(board.getPiece(move.getFrom()).getPieceType());
           board.makeMove(move);
@@ -201,6 +211,6 @@ export function parseGameFromPGN(pgn_str) {
   if (matched_lines == 0) {
     throw new Error('Invalid PGN: no moves found. Expected lines like "1. e2-e4 .. Ni10-h8 .. i13-i11 .. Ng5-h7"');
   }
-  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names, 'player_elos': player_elos, 'game_info': game_info};
+  return {'board': board, 'moves': moves, 'piece_types': piece_types, 'player_names': player_names, 'player_elos': player_elos, 'game_info': game_info, 'eliminations': eliminations};
 }
 

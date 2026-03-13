@@ -18,6 +18,8 @@ ui/build/*
 ui/bin
 ui/bin/*
 
+ui/saved_games.json
+ui/saved_games.json.tmp
 todo.txt
 nohup*
 api_key*.txt

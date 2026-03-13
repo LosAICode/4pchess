@@ -32,6 +32,9 @@ var game_info = {time_control: null, variant: null, rule_variants: null};
 // Move annotations: '+' for check, '#' for checkmate, '' otherwise
 var move_annotations = [];
 
+// Player eliminations: {color: move_index} — pieces turn grey after this index
+var eliminations = {};
+
 // User-drawn arrows and square highlights
 var user_arrows = [];        // [{from_row, from_col, to_row, to_col, color}]
 var user_highlights = [];    // [{row, col, color}]
@@ -148,7 +151,7 @@ function restoreState() {
       for (var i = 0; i < res['moves'].length; i++) {
         moves_and_piece_types.push([res['moves'][i], res['piece_types'][i]]);
       }
-      resetBoard(res['board'], moves_and_piece_types, res['player_names'], res['player_elos'], res['game_info']);
+      resetBoard(res['board'], moves_and_piece_types, res['player_names'], res['player_elos'], res['game_info'], res['eliminations']);
 
       // Restore move position
       var saved_idx = parseInt(window.localStorage['saved_move_index']);
@@ -220,7 +223,7 @@ $(document).ready(function() {
         for (var i = 0; i < pgn_moves.length; i++) {
           moves_and_piece_types.push([pgn_moves.at(i), piece_types.at(i)]);
         }
-        resetBoard(pgn_board, moves_and_piece_types, res['player_names'], res['player_elos'], res['game_info']);
+        resetBoard(pgn_board, moves_and_piece_types, res['player_names'], res['player_elos'], res['game_info'], res['eliminations']);
         displayBoard();
         $('#pgn_error').text(`Loaded ${pgn_moves.length} moves successfully.`);
         $('#pgn_error').css('color', 'green');
@@ -239,14 +242,52 @@ $(document).ready(function() {
     try { delete window.localStorage['saved_pgn']; } catch(e) {}
     saveState();
   });
-  $('#load_pgn').click(loadPGN);
-  $('#clear_pgn').click(function() {
-    $('#pgn_input').val('');
-    $('#pgn_error').text('');
-    resetBoard();
-    displayBoard();
-    try { delete window.localStorage['saved_pgn']; } catch(e) {}
-    saveState();
+  // --- Saved games ---
+  $('#open_games_btn').click(function() {
+    var list = $('#saved_games_list');
+    if (list.hasClass('visible')) {
+      list.removeClass('visible');
+    } else {
+      refreshSavedGamesList();
+      list.addClass('visible');
+    }
+  });
+
+  $('#save_game_btn').click(function() {
+    var pgn = $('#pgn_input').val();
+    if (!pgn) {
+      $('#pgn_error').text('No game to save.');
+      return;
+    }
+    $('#save_game_name').val(generateGameName());
+    $('#save_game_form').addClass('visible');
+    $('#save_game_name').focus().select();
+  });
+
+  $('#save_game_confirm').click(function() {
+    var name = $('#save_game_name').val().trim() || generateGameName();
+    saveCurrentGame(name);
+    $('#save_game_form').removeClass('visible');
+  });
+
+  $('#save_game_cancel').click(function() {
+    $('#save_game_form').removeClass('visible');
+  });
+
+  $('#save_game_name').on('keydown', function(e) {
+    if (e.key === 'Enter') { $('#save_game_confirm').click(); }
+    if (e.key === 'Escape') { $('#save_game_cancel').click(); }
+  });
+
+  $('#saved_games_list').on('click', '.saved-game-name', function(e) {
+    var id = $(this).closest('.saved-game-row').data('id');
+    loadSavedGame(id);
+  });
+
+  $('#saved_games_list').on('click', '.saved-game-delete', function(e) {
+    e.stopPropagation();
+    var id = $(this).closest('.saved-game-row').data('id');
+    deleteSavedGame(id);
   });
 
   // --- User-drawn arrows and highlights ---
@@ -307,7 +348,7 @@ $(document).ready(function() {
   });
 })
 
-function resetBoard(set_board = null, set_moves = null, set_player_names = null, set_player_elos = null, set_game_info = null) {
+function resetBoard(set_board = null, set_moves = null, set_player_names = null, set_player_elos = null, set_game_info = null, set_eliminations = null) {
   if (set_board == null) {
     board = board_util.Board.CreateStandardSetup();
     moves = [];
@@ -336,6 +377,7 @@ function resetBoard(set_board = null, set_moves = null, set_player_names = null,
   } else {
     game_info = {time_control: null, variant: null, rule_variants: null};
   }
+  eliminations = set_eliminations || {};
   computeMoveAnnotations();
   updateGameTitle();
   updatePlayerNamesBar();
@@ -808,8 +850,9 @@ function renderUserArrows(svg_parts, overlay_rect) {
 }
 
 function displayBoard() {
-  $('.cell').removeClass(piece_classes_str + ' engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green in-check user-hl-red user-hl-blue user-hl-green user-hl-yellow');
+  $('.cell').removeClass(piece_classes_str + ' eliminated engine-best-from engine-best-to last-move-red last-move-blue last-move-yellow last-move-green in-check user-hl-red user-hl-blue user-hl-green user-hl-yellow');
 
+  var current_idx = move_index != null ? move_index : -1;
   Object.values(board.location_to_piece).forEach(function(loc_piece) {
     var loc, piece;
     [loc, piece] = loc_piece;
@@ -819,7 +862,12 @@ function displayBoard() {
     var col = loc.getCol();
     var cell_id = `cell_${row}_${col}`;
     var class_name = `${color_name}-${piece_name}`;
-    $(`#${cell_id}`).addClass(class_name);
+    var cell = $(`#${cell_id}`);
+    cell.addClass(class_name);
+    // Grey out pieces of eliminated players
+    if (eliminations[color_name] != null && current_idx >= eliminations[color_name]) {
+      cell.addClass('eliminated');
+    }
   });
 
   // Highlight kings in check with red background
@@ -1298,6 +1346,126 @@ function updatePlayerLabels() {
   }
 }
 
+// --- Saved games functions ---
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function generateGameName() {
+  var parts = [];
+  var names = [];
+  for (var c of ['red', 'blue', 'yellow', 'green']) {
+    if (player_names[c]) names.push(player_names[c]);
+  }
+  if (names.length > 0) {
+    parts.push(names.join(' vs '));
+  }
+  if (game_info.time_control) {
+    var tc = formatTimeControl(game_info.time_control);
+    if (tc) parts.push(tc);
+  }
+  if (game_info.variant) parts.push(game_info.variant);
+  if (parts.length === 0) return 'Untitled Game';
+  return parts.join(' \u2013 ');
+}
+
+function formatSavedDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  var now = new Date();
+  var diff = now - d;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  if (diff < 604800000) return Math.floor(diff / 86400000) + 'd ago';
+  return d.toLocaleDateString();
+}
+
+function refreshSavedGamesList(show_all) {
+  fetch('/api/games')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var total = data.games ? data.games.length : 0;
+      if (total === 0) {
+        $('#saved_games_list').html('<div class="saved-games-empty">No saved games yet.</div>');
+        return;
+      }
+      var shown = show_all ? data.games : data.games.slice(0, 5);
+      var html = '';
+      for (var g of shown) {
+        var dateStr = formatSavedDate(g.updated_at);
+        html += '<div class="saved-game-row" data-id="' + g.id + '">'
+          + '<span class="saved-game-name" title="' + escapeHtml(g.name) + '">' + escapeHtml(g.name) + '</span>'
+          + '<span class="saved-game-date">' + dateStr + '</span>'
+          + '<button class="saved-game-delete" title="Delete">&times;</button>'
+          + '</div>';
+      }
+      if (!show_all && total > 5) {
+        html += '<div class="saved-games-more">' + (total - 5) + ' more\u2026</div>';
+      }
+      $('#saved_games_list').html(html);
+    })
+    .catch(function() {});
+}
+
+function saveCurrentGame(name) {
+  var pgn = $('#pgn_input').val();
+  if (!pgn) return;
+  var body = {
+    name: name,
+    pgn: pgn,
+    move_index: move_index != null ? move_index : -1,
+    rotation: board_rotation,
+    metadata: {
+      player_names: player_names,
+      player_elos: player_elos,
+      time_control: game_info.time_control,
+      variant: game_info.variant,
+      rule_variants: game_info.rule_variants,
+    }
+  };
+  fetch('/api/games', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  .then(function() { refreshSavedGamesList($('#saved_games_list').hasClass('visible')); })
+  .catch(function() {});
+}
+
+function loadSavedGame(id) {
+  fetch('/api/games/' + id)
+    .then(function(r) { return r.json(); })
+    .then(function(game) {
+      $('#pgn_input').val(game.pgn);
+      var res = utils.parseGameFromPGN(game.pgn);
+      var mpt = [];
+      for (var i = 0; i < res.moves.length; i++) {
+        mpt.push([res.moves[i], res.piece_types[i]]);
+      }
+      resetBoard(res.board, mpt, res.player_names, res.player_elos, res.game_info, res.eliminations);
+      if (game.move_index != null && game.move_index >= -1 && game.move_index < moves.length) {
+        jumpToMainLine(game.move_index);
+      }
+      if (game.rotation != null && game.rotation >= 0 && game.rotation <= 3) {
+        board_rotation = game.rotation;
+      }
+      applyRotation();
+      displayBoard();
+      saveState();
+      $('#saved_games_list').removeClass('visible');
+    })
+    .catch(function() {});
+}
+
+function deleteSavedGame(id) {
+  fetch('/api/games/' + id, { method: 'DELETE' })
+    .then(function() { refreshSavedGamesList($('#saved_games_list').hasClass('visible')); })
+    .catch(function() {});
+}
+
 function formatTimeControl(tc) {
   // Parse "120+10" or "2+10" style time controls
   // chess.com uses seconds format like "120+10" (120s base + 10s increment)
@@ -1395,6 +1563,12 @@ $("body").keydown(function(e) {
     displayBoard();
     try { delete window.localStorage['saved_pgn']; } catch(e2) {}
     saveState();
+  } else if (e.key === 's' && (e.ctrlKey || e.metaKey)) { // Ctrl+S = save game
+    e.preventDefault();
+    var pgn = $('#pgn_input').val();
+    if (pgn) {
+      saveCurrentGame(generateGameName());
+    }
   }
 });
 
