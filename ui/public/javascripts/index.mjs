@@ -1231,12 +1231,12 @@ function stopPlayback() {
     playback_interval = null;
   }
   playback_active = false;
-  $('#nav_play').html('&#9654;').removeClass('nav-playing');
+  $('#nav_play').html('<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>').removeClass('nav-playing');
 }
 
 function startPlayback() {
   playback_active = true;
-  $('#nav_play').html('&#9646;&#9646;').addClass('nav-playing');
+  $('#nav_play').html('<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>').addClass('nav-playing');
   playback_interval = setInterval(function() {
     // Check if we can still advance
     if (active_branch != null) {
