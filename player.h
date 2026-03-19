@@ -35,7 +35,7 @@ class PVInfo {
   std::shared_ptr<PVInfo> child_ = nullptr;
 };
 
-constexpr size_t kTranspositionTableSize = 2'000'000;
+constexpr size_t kTranspositionTableSize = 8'000'000;
 constexpr int kMaxPly = 300;
 constexpr int kKillersPerPly = 3;
 
@@ -72,6 +72,10 @@ struct PlayerOptions {
   bool enable_late_move_reduction = true;
   bool enable_late_move_pruning =   true;
   bool enable_null_move_pruning =   true;
+  bool enable_razoring = true;
+  bool enable_singular_extensions = true;
+  bool enable_see_pruning = true;
+  bool enable_iir = true;  // internal iterative reductions
 
   // for multithreading
   bool enable_multithreading = true;
@@ -92,6 +96,7 @@ struct Stack {
   Move current_move;
   int root_depth = 0;
   int static_eval = 0;
+  Move excluded_move;  // for singular extension search
 };
 
 enum NodeType {

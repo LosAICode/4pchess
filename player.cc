@@ -307,15 +307,36 @@ std::optional<std::tuple<int, std::optional<Move>>> AlphaBetaPlayer::Search(
   bool in_check = board.IsKingInCheck(player);
   ss->in_check = in_check;
 
-  // reverse futility pruning
+  // reverse futility pruning (extended to deeper depths)
   if (options_.enable_futility_pruning
       && !in_check
       && !is_pv_node
       && !is_tt_pv
-      && depth <= 1
-      && eval - 150 * depth >= beta
-      && eval < kMateValue) {
+      && depth <= 5
+      && eval - 120 * depth >= beta
+      && eval < kMateValue
+      && !ss->excluded_move.Present()) {
     return std::make_tuple(beta, std::nullopt);
+  }
+
+  // razoring: if static eval is far below alpha at low depth, drop into qsearch
+  if (options_.enable_razoring
+      && !is_root_node
+      && !is_pv_node
+      && !in_check
+      && depth <= 3
+      && eval + 200 * depth <= alpha
+      && !ss->excluded_move.Present()) {
+    num_razor_tested_++;
+    auto qsearch_result = QSearch(ss, NonPV, thread_state, 0, alpha, beta,
+        maximizing_player, deadline, pvinfo);
+    if (qsearch_result.has_value()) {
+      int qscore = std::get<0>(*qsearch_result);
+      if (qscore <= alpha) {
+        num_razor_++;
+        return qsearch_result;
+      }
+    }
   }
 
   bool partner_checked = board.IsKingInCheck(GetPartner(player));
@@ -356,6 +377,14 @@ std::optional<std::tuple<int, std::optional<Move>>> AlphaBetaPlayer::Search(
         return std::make_tuple(beta, std::nullopt);
       }
     }
+  }
+
+  // Internal Iterative Reduction: reduce depth when no TT move is available
+  if (options_.enable_iir
+      && !tt_move.has_value()
+      && depth >= 4
+      && !ss->excluded_move.Present()) {
+    depth--;
   }
 
   std::optional<Move> best_move;
@@ -404,6 +433,12 @@ std::optional<std::tuple<int, std::optional<Move>>> AlphaBetaPlayer::Search(
     }
 
     Move& move = *move_ptr;
+
+    // Skip excluded move (used for singular extension search)
+    if (ss->excluded_move.Present() && move == ss->excluded_move) {
+      continue;
+    }
+
     const auto& from = move.From();
     const auto& to = move.To();
     Piece piece = board.GetPiece(move.From());
@@ -425,6 +460,20 @@ std::optional<std::tuple<int, std::optional<Move>>> AlphaBetaPlayer::Search(
 
     bool quiet = !in_check && !move.IsCapture() && !delivers_check
       ;
+
+    // SEE pruning: prune bad captures and bad quiet moves at low depths
+    if (options_.enable_see_pruning
+        && !is_root_node
+        && alpha > -kMateValue
+        && move_count > 0
+        && !in_check) {
+      if (move.IsCapture() && depth <= 6) {
+        int see = StaticExchangeEvaluationCapture(kPieceEvaluations, board, move);
+        if (see < -50 * depth) {
+          continue;
+        }
+      }
+    }
 
     // late move pruning threshold
     int q = 1 + depth*depth/(declining?10:5);
@@ -545,6 +594,58 @@ std::optional<std::tuple<int, std::optional<Move>>> AlphaBetaPlayer::Search(
         && expanded < 3) {
       num_check_extensions_++;
       e = 1;
+    }
+
+    // Singular extension: if the TT move is much better than alternatives,
+    // extend it to avoid missing critical lines
+    if (options_.enable_singular_extensions
+        && !is_root_node
+        && depth >= 6
+        && tt_move.has_value()
+        && move == *tt_move
+        && !ss->excluded_move.Present()
+        && tte != nullptr
+        && tte->bound == LOWER_BOUND
+        && tte->depth >= depth - 3
+        && std::abs(tte->score) < kMateValue) {
+      num_singular_extension_searches_++;
+      int se_beta = tte->score - 2 * depth;
+      int se_depth = (depth - 1) / 2;
+
+      // Undo the move we just made, search without the TT move
+      board.UndoMove();
+      if (options_.enable_mobility_evaluation
+          || options_.enable_piece_activation) {
+        thread_state.NActivated()[player_color] = curr_n_activated;
+        thread_state.TotalMoves()[player_color] = curr_total_moves;
+      }
+
+      ss->excluded_move = move;
+      PVInfo se_pvinfo;
+      auto se_result = Search(
+          ss, NonPV, thread_state, ply, se_depth,
+          se_beta - 1, se_beta, maximizing_player, expanded,
+          deadline, se_pvinfo, null_moves, is_cut_node);
+      ss->excluded_move = Move();
+
+      // Re-make the move
+      board.MakeMove(move);
+      if (options_.enable_mobility_evaluation
+          || options_.enable_piece_activation) {
+        UpdateMobilityEvaluation(thread_state, player);
+      }
+
+      if (se_result.has_value()) {
+        int se_score = std::get<0>(*se_result);
+        if (se_score < se_beta) {
+          // TT move is singular — extend it
+          num_singular_extensions_++;
+          e = 1;
+        } else if (se_beta >= beta) {
+          // Multi-cut: all moves are good, likely a fail-high
+          e = -1;
+        }
+      }
     }
 
     if (lmr) {
@@ -1268,6 +1369,130 @@ int AlphaBetaPlayer::Evaluate(
       eval += kPieceImbalanceTable[diff_ry] - kPieceImbalanceTable[diff_bg];
     }
 
+    // Pawn structure evaluation: doubled, isolated, and passed pawns
+    {
+      const auto& piece_list = board.GetPieceList();
+      int pawn_eval_ry = 0;
+      int pawn_eval_bg = 0;
+
+      // For each color, analyze pawn structure
+      for (int color = 0; color < 4; color++) {
+        int pawn_bonus = 0;
+        // Collect pawn positions
+        std::vector<BoardLocation> pawns;
+        for (const auto& placed_piece : piece_list[color]) {
+          if (placed_piece.GetPiece().GetPieceType() == PAWN) {
+            pawns.push_back(placed_piece.GetLocation());
+          }
+        }
+
+        for (size_t pi = 0; pi < pawns.size(); pi++) {
+          int prow = pawns[pi].GetRow();
+          int pcol = pawns[pi].GetCol();
+
+          // Check for doubled pawns (same file/column for this color's pawn direction)
+          bool doubled = false;
+          for (size_t pj = 0; pj < pawns.size(); pj++) {
+            if (pi == pj) continue;
+            // Red/Yellow move along rows, Blue/Green move along columns
+            if (color == RED || color == YELLOW) {
+              if (pawns[pj].GetCol() == pcol) { doubled = true; break; }
+            } else {
+              if (pawns[pj].GetRow() == prow) { doubled = true; break; }
+            }
+          }
+          if (doubled) pawn_bonus -= 15;
+
+          // Check for isolated pawns (no friendly pawns on adjacent files)
+          bool isolated = true;
+          for (size_t pj = 0; pj < pawns.size(); pj++) {
+            if (pi == pj) continue;
+            if (color == RED || color == YELLOW) {
+              if (std::abs(pawns[pj].GetCol() - pcol) == 1) { isolated = false; break; }
+            } else {
+              if (std::abs(pawns[pj].GetRow() - prow) == 1) { isolated = false; break; }
+            }
+          }
+          if (isolated) pawn_bonus -= 20;
+
+          // Check for passed pawns (no enemy pawns blocking or able to capture)
+          bool passed = true;
+          for (int ec = 0; ec < 4; ec++) {
+            // Check enemy colors
+            bool is_enemy = (color == RED || color == YELLOW)
+                ? (ec == BLUE || ec == GREEN)
+                : (ec == RED || ec == YELLOW);
+            if (!is_enemy) continue;
+            for (const auto& epp : piece_list[ec]) {
+              if (epp.GetPiece().GetPieceType() != PAWN) continue;
+              int er = epp.GetLocation().GetRow();
+              int ecl = epp.GetLocation().GetCol();
+              // Red advances toward row 0, Yellow toward row 13
+              // Blue advances toward col 13, Green toward col 0
+              if (color == RED) {
+                if (std::abs(ecl - pcol) <= 1 && er < prow) { passed = false; break; }
+              } else if (color == YELLOW) {
+                if (std::abs(ecl - pcol) <= 1 && er > prow) { passed = false; break; }
+              } else if (color == BLUE) {
+                if (std::abs(er - prow) <= 1 && ecl > pcol) { passed = false; break; }
+              } else { // GREEN
+                if (std::abs(er - prow) <= 1 && ecl < pcol) { passed = false; break; }
+              }
+            }
+            if (!passed) break;
+          }
+          if (passed) {
+            // Passed pawn bonus scales with advancement
+            int advancement = 0;
+            switch (color) {
+              case RED:    advancement = 12 - prow; break;
+              case YELLOW: advancement = prow - 1; break;
+              case BLUE:   advancement = pcol - 1; break;
+              case GREEN:  advancement = 12 - pcol; break;
+            }
+            pawn_bonus += 15 + 10 * advancement;
+          }
+        }
+
+        if (color == RED || color == YELLOW) {
+          pawn_eval_ry += pawn_bonus;
+        } else {
+          pawn_eval_bg += pawn_bonus;
+        }
+      }
+      eval += pawn_eval_ry - pawn_eval_bg;
+    }
+
+    // Endgame evaluation: king centralization bonus when few pieces remain
+    {
+      int total_material = board.PieceEvaluation(RED) + board.PieceEvaluation(YELLOW)
+                         + board.PieceEvaluation(BLUE) + board.PieceEvaluation(GREEN);
+      // Rough phase: 0 = endgame, 1 = opening
+      // Starting material is ~4*(8*50 + 2*300 + 2*400 + 2*500 + 1*1000) = ~14800
+      constexpr int kStartMaterial = 14800;
+      float phase = std::min(1.0f, (float)total_material / kStartMaterial);
+      float endgame_weight = 1.0f - phase;
+
+      if (endgame_weight > 0.3f) {
+        // King centralization in endgame
+        for (int color = 0; color < 4; color++) {
+          auto king_loc = board.GetKingLocation(static_cast<PlayerColor>(color));
+          if (king_loc.Present()) {
+            float kr = king_loc.GetRow() - 6.5f;
+            float kc = king_loc.GetCol() - 6.5f;
+            float center_dist = std::sqrt(kr * kr + kc * kc);
+            // Closer to center is better in endgame (max bonus ~50cp)
+            int king_center_bonus = (int)(endgame_weight * (50.0f - 8.0f * center_dist));
+            if (color == RED || color == YELLOW) {
+              eval += king_center_bonus;
+            } else {
+              eval -= king_center_bonus;
+            }
+          }
+        }
+      }
+    }
+
     constexpr int kKingSafetyMargin = 600;
     if (lazy_skip(kKingSafetyMargin)) {
       num_lazy_eval_++;
@@ -1437,6 +1662,10 @@ AlphaBetaPlayer::MakeMove(
   last_board_key_ = hash_key;
 
   SetCanceled(false);
+  // Increment TT generation for aging-based replacement
+  if (transposition_table_) {
+    transposition_table_->NewSearch();
+  }
   // Use Alpha-Beta search with iterative deepening
   std::optional<std::chrono::time_point<std::chrono::system_clock>> deadline;
   auto start = std::chrono::system_clock::now();

@@ -29,15 +29,32 @@ void TranspositionTable::Save(
     ScoreBound bound, bool is_pv) {
   size_t n = key % table_size_;
   HashTableEntry& entry = hash_table_[n];
-  if (bound == EXACT
+
+  // Preserve existing move if we don't have a new one
+  if (entry.key == key && !move.has_value()) {
+    move = entry.move;
+  }
+
+  // Replacement strategy: always replace if
+  // 1. EXACT bound (most valuable), or
+  // 2. Different position (no choice), or
+  // 3. Deeper search, or
+  // 4. Same depth but from newer generation (aging), or
+  // 5. Entry is from an old generation (stale)
+  bool replace = bound == EXACT
       || entry.key != key
-      || entry.depth < depth) {
+      || entry.depth < depth
+      || (entry.depth == depth && entry.age != generation_)
+      || (entry.age != generation_ && !entry.is_pv);
+
+  if (replace) {
     entry.key = key;
     entry.depth = depth;
     entry.move = move;
     entry.score = score;
     entry.bound = bound;
     entry.is_pv = is_pv;
+    entry.age = generation_;
   }
 }
 
